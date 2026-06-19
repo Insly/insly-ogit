@@ -4,13 +4,16 @@ package controller
 import (
 	"bytes"
 	"context"
+	"github.com/go-git/go-git/v5/plumbing/format/pktline"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/labbs/git-server-s3/pkg/common"
+	git "github.com/labbs/git-server-s3/pkg/git"
 	"github.com/labbs/git-server-s3/pkg/storage"
 	"github.com/rs/zerolog"
 
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
+	"github.com/go-git/go-git/v5/plumbing/protocol/packp/capability"
 )
 
 // GitController handles Git Smart HTTP protocol requests.
@@ -65,6 +68,7 @@ func (gc *GitController) InfoRefs(ctx *fiber.Ctx) error {
 		if err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
+		adv.Capabilities.Set(capability.Shallow)
 		if err := common.WriteServiceAdvertisement(ctx.Response().BodyWriter(), service); err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
@@ -128,6 +132,34 @@ func (gc *GitController) HandleUploadPack(c *fiber.Ctx) error {
 	if err := req.Decode(bytes.NewReader(c.Body())); err != nil {
 		logger.Error().Err(err).Msg("Failed to decode upload pack request")
 		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
+	}
+
+	// Intercept shallow clone / fetch requests (depth > 0) and handle them
+	// with a custom implementation, since go-git's server does not support shallow.
+	if _, isDepth := req.Depth.(packp.DepthCommits); isDepth && (!req.Depth.IsZero() || len(req.Shallows) > 0) {
+		st, err := gc.Storage.GetStorer(repoPath)
+		if err != nil {
+			logger.Error().Err(err).Msg("Failed to get storer for shallow request")
+			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		}
+		c.Set("Content-Type", "application/x-git-upload-pack-result")
+		logger.Debug().Int("depth", int(req.Depth.(packp.DepthCommits))).Msg("Handling shallow upload-pack")
+		done := false
+		scanner := pktline.NewScanner(bytes.NewReader(c.Body()))
+		for scanner.Scan() {
+			if bytes.Equal(bytes.TrimSpace(scanner.Bytes()), []byte("done")) {
+				done = true
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return c.Status(400).SendString(err.Error())
+		}
+		if err := git.ServeShallowUploadPack(c.Response().BodyWriter(), st, req, done); err != nil {
+			logger.Error().Err(err).Msg("Failed to serve shallow upload-pack")
+			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		}
+		logger.Debug().Msg("Shallow upload-pack completed")
+		return nil
 	}
 
 	logger.Debug().Msg("Calling UploadPack")
