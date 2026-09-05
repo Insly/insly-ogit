@@ -44,11 +44,12 @@ var (
 		Type string
 
 		S3 struct {
-			Bucket    string
-			Endpoint  string
-			AccessKey string
-			SecretKey string
-			Region    string
+			Bucket       string
+			Endpoint     string
+			AccessKey    string
+			SecretKey    string
+			SessionToken string
+			Region       string
 		}
 
 		Local struct {
