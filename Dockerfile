@@ -1,14 +1,15 @@
-FROM golang:1.24 AS builder
+FROM golang:1.27.1 AS builder
 
-WORKDIR /app
+WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o bin/app ./cmd
+ARG VERSION=development
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-X main.version=${VERSION}" -o /out/app ./cmd
 
-FROM alpine:latest AS release
-RUN apk update && apk add ca-certificates git && rm -rf /var/cache/apk/*
-COPY --from=builder /app/bin/app .
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
+FROM alpine:3.23 AS release
+RUN apk add --no-cache ca-certificates git
+COPY --from=builder /out/app /app
+USER 65532:65532
+ENTRYPOINT ["/app"]
+CMD ["server", "-c", "/config/config.yaml"]

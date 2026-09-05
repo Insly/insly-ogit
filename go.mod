@@ -1,6 +1,6 @@
 module github.com/labbs/git-server-s3
 
-go 1.24.2
+go 1.27.1
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.38.3
@@ -63,7 +63,6 @@ require (
 	github.com/valyala/fasthttp v1.51.0 // indirect
 	github.com/valyala/tcplisten v1.0.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
-	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
