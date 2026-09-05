@@ -12,7 +12,7 @@ jobs:
     timeout-minutes: 20
     services:
       floci:
-        image: floci/floci:2.0.1
+        image: public.ecr.aws/floci/floci:2.0.1
         ports:
           - 4566:4566
     env:

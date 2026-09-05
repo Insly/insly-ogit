@@ -126,14 +126,16 @@ end-to-end rollout freshness through consuming applications too.
 
 ## Verification and releases
 
-Go is pinned to 1.27.1 in `go.mod`, `.tool-versions`, and Docker. PRs, main
-pushes, manual checks and release tags use the shared GitHub test workflow.
+Go is pinned to 1.27.1 in `go.mod`, `.tool-versions`, and Docker. The runtime
+uses Debian `trixie-slim`; the Go builder, Debian runtime and Floci test images
+are pulled from public ECR. PRs, main pushes, manual checks and release tags
+use the shared GitHub test workflow.
 Release publication depends on that workflow and pushes the saved, tested
 image rather than rebuilding it. PR jobs have read-only repository permissions.
 
 ```sh
 go test -race -count=1 -timeout=5m ./...
-docker run --rm -p 4566:4566 floci/floci:2.0.1
+docker run --rm -p 4566:4566 public.ecr.aws/floci/floci:2.0.1
 # In another terminal:
 FLOCI_ENDPOINT=http://127.0.0.1:4566 make test-integration
 ```
