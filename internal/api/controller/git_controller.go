@@ -6,7 +6,7 @@ import (
 	"context"
 	"github.com/go-git/go-git/v5/plumbing/format/pktline"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/labbs/git-server-s3/pkg/common"
 	git "github.com/labbs/git-server-s3/pkg/git"
 	"github.com/labbs/git-server-s3/pkg/storage"
@@ -32,7 +32,7 @@ type GitController struct {
 //   - service: either "git-upload-pack" (for clone/fetch) or "git-receive-pack" (for push)
 //
 // Response: Git protocol formatted reference advertisement
-func (gc *GitController) InfoRefs(ctx *fiber.Ctx) error {
+func (gc *GitController) InfoRefs(ctx fiber.Ctx) error {
 	logger := gc.Logger.With().Str("event", "InfoRefs").Logger()
 
 	logger.Debug().Str("repo", ctx.Params("repo")).Send()
@@ -101,7 +101,7 @@ func (gc *GitController) InfoRefs(ctx *fiber.Ctx) error {
 //
 // Request body: Git pack protocol request (binary)
 // Response: Git pack protocol response with requested objects
-func (gc *GitController) HandleUploadPack(c *fiber.Ctx) error {
+func (gc *GitController) HandleUploadPack(c fiber.Ctx) error {
 	logger := gc.Logger.With().Str("event", "HandleUploadPack").Logger()
 
 	// Extract repository path from URL
@@ -187,7 +187,7 @@ func (gc *GitController) HandleUploadPack(c *fiber.Ctx) error {
 //
 // Request body: Git pack protocol request with reference updates and pack data (binary)
 // Response: Git pack protocol status report indicating success/failure of each reference update
-func (gc *GitController) HandleReceivePack(c *fiber.Ctx) error {
+func (gc *GitController) HandleReceivePack(c fiber.Ctx) error {
 	logger := gc.Logger.With().Str("event", "HandleReceivePack").Logger()
 
 	// Extract repository path from URL

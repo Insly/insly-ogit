@@ -1,16 +1,16 @@
 package zerolog
 
 import (
-	"fmt"
 	"slices"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/requestid"
 	z "github.com/rs/zerolog"
 )
 
 func HTTPLogger(logger z.Logger) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		timeStart := time.Now()
 		err := c.Next()
 		var _logger *z.Event
@@ -33,9 +33,9 @@ func HTTPLogger(logger z.Logger) fiber.Handler {
 			Str("user_agent", c.Get("User-Agent")).
 			Int("bytes_sent", c.Response().Header.ContentLength()).
 			Int("bytes_received", c.Request().Header.ContentLength()).
-			Str("proto", c.Protocol()).
-			Str("host", c.Hostname()).
-			Str("request_id", fmt.Sprintf("%v", c.Locals("requestid"))).
+			Str("proto", c.Scheme()).
+			Str("host", c.Host()).
+			Str("request_id", requestid.FromContext(c)).
 			Send()
 		return err
 	}

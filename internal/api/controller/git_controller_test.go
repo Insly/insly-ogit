@@ -20,7 +20,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
 	"github.com/go-git/go-git/v5/storage/memory"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,7 +66,7 @@ func buildGitRepo(t *testing.T, n int) (*memory.Storage, plumbing.Hash) {
 // setupGitControllerApp creates a Fiber app with the GitController routes and
 // a pre-configured MockGitRepositoryStorage.
 func setupGitControllerApp(mockStorage *MockGitRepositoryStorage) *fiber.App {
-	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	app := fiber.New()
 	gc := &GitController{
 		Logger:  zerolog.Nop(),
 		Storage: mockStorage,
@@ -149,7 +149,7 @@ func TestHandleUploadPack_ShallowIntercepted(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test.git/git-upload-pack", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-git-upload-pack-request")
 
-	resp, err := app.Test(req, 10_000) // 10 s timeout
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 10 * time.Second, FailOnTimeout: true}) // 10 s timeout
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -228,7 +228,7 @@ func TestNativeGitShallowCloneAndDeepen(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fixtureMu.Lock()
 		defer fixtureMu.Unlock()
-		resp, err := app.Test(r, 10000)
+		resp, err := app.Test(r, fiber.TestConfig{Timeout: 10 * time.Second, FailOnTimeout: true})
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return

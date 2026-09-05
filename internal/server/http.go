@@ -11,11 +11,11 @@ import (
 	"github.com/labbs/git-server-s3/pkg/storage"
 
 	"github.com/goccy/go-json"
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/compress"
-	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/recover"
-	"github.com/gofiber/fiber/v2/middleware/requestid"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/compress"
+	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/recover"
+	"github.com/gofiber/fiber/v3/middleware/requestid"
 	z "github.com/rs/zerolog"
 )
 
@@ -30,9 +30,8 @@ type HttpConfig struct {
 
 func (c *HttpConfig) Configure() {
 	fiberConfig := fiber.Config{
-		JSONEncoder:           json.Marshal,
-		JSONDecoder:           json.Unmarshal,
-		DisableStartupMessage: true,
+		JSONEncoder: json.Marshal,
+		JSONDecoder: json.Unmarshal,
 	}
 
 	r := fiber.New(fiberConfig)
@@ -46,14 +45,14 @@ func (c *HttpConfig) Configure() {
 	r.Use(compress.New())
 	r.Use(requestid.New())
 
-	r.Get("/health", func(ctx *fiber.Ctx) error {
+	r.Get("/health", func(ctx fiber.Ctx) error {
 		return ctx.JSON(fiber.Map{
 			"status":  "ok",
 			"service": "git-server-s3",
 		})
 	})
 
-	r.Get("/ready", func(cctx *fiber.Ctx) error {
+	r.Get("/ready", func(cctx fiber.Ctx) error {
 		if c.Mirror != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
@@ -80,7 +79,7 @@ func (c *HttpConfig) NewServer() error {
 
 	c.Logger.Info().Msgf("Starting server on port %d", c.Port)
 
-	err := c.Fiber.Listen(":" + strconv.Itoa(c.Port))
+	err := c.Fiber.Listen(":"+strconv.Itoa(c.Port), fiber.ListenConfig{DisableStartupMessage: true})
 	if err != nil {
 		c.Logger.Error().Err(err).Msg("Failed to start server")
 		return err

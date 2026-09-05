@@ -6,12 +6,12 @@ import (
 	"encoding/base64"
 	"strings"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/labbs/git-server-s3/internal/config"
 )
 
 func accessPolicy(a config.AccessConfig) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		path := c.Path()
 		read := (c.Method() == "GET" && strings.HasSuffix(path, "/info/refs") && c.Query("service") == "git-upload-pack") || (c.Method() == "POST" && strings.HasSuffix(path, "/git-upload-pack")) || (c.Method() == "GET" && path == "/replication/status")
 		write := (c.Method() == "GET" && strings.HasSuffix(path, "/info/refs") && c.Query("service") == "git-receive-pack") || (c.Method() == "POST" && strings.HasSuffix(path, "/git-receive-pack"))

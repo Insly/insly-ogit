@@ -2,7 +2,7 @@
 package controller
 
 import (
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/labbs/git-server-s3/pkg/common"
 	"github.com/labbs/git-server-s3/pkg/storage"
 	"github.com/rs/zerolog"
@@ -22,14 +22,14 @@ type RepoController struct {
 //
 // Request body: {"name": "repository-name"}
 // Response: 201 Created with "repository created" message on success
-func (c *RepoController) CreateRepo(ctx *fiber.Ctx) error {
+func (c *RepoController) CreateRepo(ctx fiber.Ctx) error {
 	logger := c.Logger.With().Str("event", "CreateRepo").Logger()
 
 	var req struct {
 		Name string `json:"name"`
 	}
 
-	if err := ctx.BodyParser(&req); err != nil {
+	if err := ctx.Bind().Body(&req); err != nil {
 		return ctx.Status(fiber.StatusBadRequest).SendString(err.Error())
 	}
 
@@ -50,7 +50,7 @@ func (c *RepoController) CreateRepo(ctx *fiber.Ctx) error {
 // Returns a JSON array containing the names of all repositories in the storage backend.
 //
 // Response: 200 OK with JSON array of repository names
-func (c *RepoController) ListRepos(ctx *fiber.Ctx) error {
+func (c *RepoController) ListRepos(ctx fiber.Ctx) error {
 	logger := c.Logger.With().Str("event", "ListRepos").Logger()
 
 	repos, err := c.Storage.ListRepositories()

@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/labbs/git-server-s3/internal/config"
 	"github.com/labbs/git-server-s3/pkg/storage/local"
 	"github.com/rs/zerolog"
