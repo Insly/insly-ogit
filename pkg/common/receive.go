@@ -12,6 +12,7 @@ import (
 	"github.com/labbs/git-server-s3/pkg/gitgraph"
 	"github.com/labbs/git-server-s3/pkg/storage"
 	s3store "github.com/labbs/git-server-s3/pkg/storage/s3"
+	"github.com/labbs/git-server-s3/pkg/telemetry"
 )
 
 // go-git's receive-pack uses SetReference and ignores the client's old hash.
@@ -47,7 +48,18 @@ func (s *receiveSession) AdvertisedReferencesContext(ctx context.Context) (*pack
 	}
 	return a, err
 }
-func (s *receiveSession) ReceivePack(ctx context.Context, req *packp.ReferenceUpdateRequest) (*packp.ReportStatus, error) {
+func (s *receiveSession) ReceivePack(ctx context.Context, req *packp.ReferenceUpdateRequest) (result *packp.ReportStatus, resultErr error) {
+	ctx, end := telemetry.StartOperation(ctx, "git.receive_pack")
+	rejected := true
+	defer func() {
+		outcome := telemetry.Outcome(resultErr)
+		if resultErr != nil && rejected {
+			outcome = "rejected"
+		}
+		telemetry.Count(ctx, "ogit.git.pushes", outcome)
+		end(outcome)
+	}()
+
 	report := &packp.ReportStatus{UnpackStatus: "ok"}
 	finish := func(err error) (*packp.ReportStatus, error) {
 		for _, c := range req.Commands {
@@ -72,7 +84,8 @@ func (s *receiveSession) ReceivePack(ctx context.Context, req *packp.ReferenceUp
 	if req.Capabilities.Supports(capability.Atomic) {
 		return finish(fmt.Errorf("atomic multi-ref pushes are unsupported"))
 	}
-	st, err := s.repo.GetStorer(s.path)
+	rejected = false
+	st, err := storage.WithContext(ctx, s.repo).GetStorer(s.path)
 	if err != nil {
 		return finish(err)
 	}
@@ -93,6 +106,7 @@ func (s *receiveSession) ReceivePack(ctx context.Context, req *packp.ReferenceUp
 	var old *plumbing.Reference
 	if !c.Old.IsZero() {
 		if !ancestors[c.Old] {
+			rejected = true
 			return finish(fmt.Errorf("non-fast-forward update rejected"))
 		}
 		old = plumbing.NewHashReference(c.Name, c.Old)

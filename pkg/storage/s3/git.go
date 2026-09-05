@@ -18,6 +18,7 @@ import (
 )
 
 type S3Storage struct {
+	ctx    context.Context
 	Logger zerolog.Logger
 	bucket string
 	client *awss3.Client
@@ -48,7 +49,7 @@ func (s3s *S3Storage) Configure() error {
 	s3s.client = s3Config.Client
 
 	// Test connection by listing objects (alternative to HeadBucket which requires fewer permissions)
-	_, err = s3s.client.ListObjectsV2(context.TODO(), &awss3.ListObjectsV2Input{
+	_, err = s3s.client.ListObjectsV2(s3s.context(), &awss3.ListObjectsV2Input{
 		Bucket:  aws.String(s3s.bucket),
 		MaxKeys: aws.Int32(1), // Only get 1 object to minimize overhead
 	})
@@ -70,12 +71,12 @@ func (s3s *S3Storage) GetStorer(repoPath string) (storer.Storer, error) {
 		return nil, errors.New("repository does not exist")
 	}
 
-	return NewS3Storer(s3s.client, s3s.bucket, s3s.getRepoKey(repoPath), s3s.Logger), nil
+	return NewS3Storer(s3s.client, s3s.bucket, s3s.getRepoKey(repoPath), s3s.Logger).WithContext(s3s.context()), nil
 }
 
 func (s3s *S3Storage) CreateRepository(repoPath string) error {
 	repoKey := s3s.getRepoKey(repoPath)
-	st := NewS3Storer(s3s.client, s3s.bucket, repoKey, s3s.Logger)
+	st := NewS3Storer(s3s.client, s3s.bucket, repoKey, s3s.Logger).WithContext(s3s.context())
 	_, err := st.Reference("refs/heads/main")
 	if err == nil {
 		return errors.New("repository already exists")
@@ -92,7 +93,7 @@ func (s3s *S3Storage) CreateRepository(repoPath string) error {
 // createInitialCommit creates an initial commit with README.md and main branch
 func (s3s *S3Storage) createInitialCommit(repoKey string) error {
 	// Create a storer for this repository
-	storer := NewS3Storer(s3s.client, s3s.bucket, repoKey, s3s.Logger)
+	storer := NewS3Storer(s3s.client, s3s.bucket, repoKey, s3s.Logger).WithContext(s3s.context())
 
 	// Create README.md content
 	readmeContent := []byte(`# Repository
@@ -192,7 +193,7 @@ func (s3s *S3Storage) RepositoryExists(repoPath string) bool {
 	repoKey := s3s.getRepoKey(repoPath)
 
 	// Check if HEAD exists to determine if repository exists
-	_, err := s3s.client.HeadObject(context.TODO(), &awss3.HeadObjectInput{
+	_, err := s3s.client.HeadObject(s3s.context(), &awss3.HeadObjectInput{
 		Bucket: aws.String(s3s.bucket),
 		Key:    aws.String(repoKey + "/HEAD"),
 	})
@@ -215,7 +216,7 @@ func (s3s *S3Storage) DeleteRepository(repoPath string) error {
 
 	// Delete all objects in batches
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(s3s.context())
 		if err != nil {
 			return fmt.Errorf("failed to list repository objects: %w", err)
 		}
@@ -233,7 +234,7 @@ func (s3s *S3Storage) DeleteRepository(repoPath string) error {
 		}
 
 		// Delete objects
-		_, err = s3s.client.DeleteObjects(context.TODO(), &awss3.DeleteObjectsInput{
+		_, err = s3s.client.DeleteObjects(s3s.context(), &awss3.DeleteObjectsInput{
 			Bucket: aws.String(s3s.bucket),
 			Delete: &types.Delete{
 				Objects: objects,
@@ -259,7 +260,7 @@ func (s3s *S3Storage) ListRepositories() ([]string, error) {
 	})
 
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(s3s.context())
 		if err != nil {
 			return nil, fmt.Errorf("failed to list repositories: %w", err)
 		}
@@ -289,4 +290,17 @@ func (s3s *S3Storage) getRepoKey(repoPath string) string {
 
 	// Prefix with repositories/
 	return "repositories/" + cleanPath
+}
+
+// WithContext returns request-scoped repository access.
+func (s3s *S3Storage) WithContext(ctx context.Context) *S3Storage {
+	copy := *s3s
+	copy.ctx = ctx
+	return &copy
+}
+func (s3s *S3Storage) context() context.Context {
+	if s3s.ctx != nil {
+		return s3s.ctx
+	}
+	return context.Background()
 }

@@ -51,6 +51,11 @@ func runServer(ctx context.Context, c *cli.Command) error {
 		return err
 	}
 	l := logger.NewLogger(config.Logger.Level, config.Logger.Pretty, c.Root().Version)
+	shutdown, err := startTelemetry(ctx, c.Root().Version, l)
+	if err != nil {
+		return err
+	}
+	defer shutdown()
 
 	str, err := storage.NewGitRepositoryStorage(l)
 	if err != nil {
@@ -59,7 +64,7 @@ func runServer(ctx context.Context, c *cli.Command) error {
 
 	// Configure the storage backend
 	if err := str.Configure(); err != nil {
-		l.Fatal().Err(err).Msg("Failed to configure storage")
+		l.Error().Err(err).Msg("Failed to configure storage")
 		return err
 	}
 
@@ -135,7 +140,7 @@ func runServer(ctx context.Context, c *cli.Command) error {
 		}
 
 		if err := sshConfig.Configure(); err != nil {
-			l.Fatal().Err(err).Msg("Failed to configure SSH server")
+			l.Error().Err(err).Msg("Failed to configure SSH server")
 			return err
 		}
 

@@ -12,6 +12,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/labbs/git-server-s3/pkg/gitgraph"
 	s3store "github.com/labbs/git-server-s3/pkg/storage/s3"
+	"github.com/labbs/git-server-s3/pkg/telemetry"
 )
 
 type Status struct {
@@ -39,6 +40,14 @@ func scoped(s storer.Storer, ctx context.Context) storer.Storer {
 
 // Reconcile needs no in-memory checkpoint. All progress is committed in the destination ref.
 func (m *Mirror) Reconcile(ctx context.Context) (err error) {
+	start := time.Now()
+	ctx, end := telemetry.StartOperation(ctx, "git.replicate")
+	defer func() {
+		outcome := telemetry.Outcome(err)
+		telemetry.Duration(ctx, "ogit.replication.duration", outcome, start)
+		end(outcome)
+	}()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.status.LastAttempt = time.Now().UTC()
@@ -130,6 +139,8 @@ func (m *Mirror) Run(ctx context.Context, interval, timeout time.Duration, obser
 	if interval <= 0 || timeout <= 0 {
 		return fmt.Errorf("positive replication interval and timeout required")
 	}
+	freshness := telemetry.WatchReplication()
+	defer freshness.Close()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -139,8 +150,10 @@ func (m *Mirror) Run(ctx context.Context, interval, timeout time.Duration, obser
 		attempt, cancel := context.WithTimeout(ctx, timeout)
 		_ = m.Reconcile(attempt)
 		cancel()
+		status := m.Status()
+		freshness.Update(status.LastSuccess, status.PendingSince)
 		if observe != nil {
-			observe(m.Status())
+			observe(status)
 		}
 		select {
 		case <-ctx.Done():

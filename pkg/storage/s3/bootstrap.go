@@ -16,11 +16,14 @@ import (
 	gitstorage "github.com/go-git/go-git/v5/storage"
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/labbs/git-server-s3/pkg/gitgraph"
+	"github.com/labbs/git-server-s3/pkg/telemetry"
 )
 
 // Bootstrap seeds an absent branch. Existing flags always win, including after
 // a crash or a competing initializer. A read error never authorizes a write.
-func (s *S3Storage) Bootstrap(ctx context.Context, repo, branch string, files map[string][]byte) (plumbing.Hash, error) {
+func (s *S3Storage) Bootstrap(ctx context.Context, repo, branch string, files map[string][]byte) (result plumbing.Hash, resultErr error) {
+	ctx, end := telemetry.StartOperation(ctx, "git.bootstrap")
+	defer func() { end(telemetry.Outcome(resultErr)) }()
 	name := plumbing.NewBranchReferenceName(branch)
 	if err := name.Validate(); err != nil {
 		return plumbing.ZeroHash, err
@@ -115,5 +118,5 @@ func (s *S3Storage) Bootstrap(ctx context.Context, repo, branch string, files ma
 
 // StorerForRepository also works before initialization, for controlled bootstrap/replication.
 func (s *S3Storage) StorerForRepository(repo string) *S3Storer {
-	return NewS3Storer(s.client, s.bucket, s.getRepoKey(repo), s.Logger)
+	return NewS3Storer(s.client, s.bucket, s.getRepoKey(repo), s.Logger).WithContext(s.context())
 }

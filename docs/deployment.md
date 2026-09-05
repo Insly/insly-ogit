@@ -119,7 +119,8 @@ also be checked by the consuming workload.
 
 Authenticated `GET /replication/status` returns source/applied revisions, last
 attempt/success, first-observed pending time and the last error. Emit/collect
-these alongside the structured reconciliation logs. Pending time is the
+these alongside the structured reconciliation logs, or use the standard
+[OpenTelemetry traces and metrics](telemetry.md) for monitoring. Pending time is the
 controller's observation time, not the source commit time; a restart resets local
 status. Alert on errors, last-success age and differing revisions; measure
 end-to-end rollout freshness through consuming applications too.

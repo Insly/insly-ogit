@@ -7,8 +7,11 @@ import (
 	awsCfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go/metrics/smithyotelmetrics"
+	"github.com/aws/smithy-go/tracing/smithyoteltracing"
 	"github.com/labbs/git-server-s3/internal/config"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel"
 )
 
 type S3Config struct {
@@ -33,6 +36,8 @@ func NewClient(ctx context.Context, region, endpoint, accessKey, secretKey, sess
 		return nil, err
 	}
 	return awss3.NewFromConfig(cfg, func(o *awss3.Options) {
+		o.TracerProvider = smithyoteltracing.Adapt(otel.GetTracerProvider())
+		o.MeterProvider = smithyotelmetrics.Adapt(otel.GetMeterProvider())
 		if endpoint != "" {
 			o.BaseEndpoint = aws.String(endpoint)
 			o.UsePathStyle = true

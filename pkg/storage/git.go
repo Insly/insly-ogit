@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/go-git/go-git/v5/plumbing/storer"
@@ -64,4 +65,12 @@ func NewGitRepositoryStorage(logger zerolog.Logger) (GitRepositoryStorage, error
 	default:
 		return nil, fmt.Errorf("unsupported storage type: %s", config.Storage.Type)
 	}
+}
+
+// WithContext scopes S3 operations without changing the shared repository backend.
+func WithContext(ctx context.Context, repository GitRepositoryStorage) GitRepositoryStorage {
+	if s, ok := repository.(*s3.S3Storage); ok {
+		return s.WithContext(ctx)
+	}
+	return repository
 }

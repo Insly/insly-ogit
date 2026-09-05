@@ -11,6 +11,8 @@ import (
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-git/go-git/v5/plumbing"
 	gitstorage "github.com/go-git/go-git/v5/storage"
+	"github.com/labbs/git-server-s3/pkg/telemetry"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 func (s *S3Storer) context() context.Context {
@@ -77,7 +79,19 @@ func (s *S3Storer) Reference(name plumbing.ReferenceName) (*plumbing.Reference, 
 func (s *S3Storer) SetReference(ref *plumbing.Reference) error {
 	return s.CheckAndSetReference(ref, nil)
 }
-func (s *S3Storer) CheckAndSetReference(next, old *plumbing.Reference) error {
+func (s *S3Storer) CheckAndSetReference(next, old *plumbing.Reference) (resultErr error) {
+	ctx, end := telemetry.StartOperation(s.context(), "git.ref.publish")
+	s = s.WithContext(ctx)
+	operation := "update"
+	if old == nil {
+		operation = "create"
+	}
+	defer func() {
+		outcome := telemetry.Outcome(resultErr)
+		telemetry.Count(ctx, "ogit.ref.publications", outcome, attribute.String("ogit.ref.operation", operation))
+		end(outcome)
+	}()
+
 	if next == nil {
 		return fmt.Errorf("nil reference")
 	}

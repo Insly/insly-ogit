@@ -60,12 +60,12 @@ jobs:
           git clone --depth=1 "http://git:$reader@127.0.0.1:$port/smoke.git" "$RUNNER_TEMP/ogit-smoke"
           test -f "$RUNNER_TEMP/ogit-smoke/README.md"
           test "$(curl -s -o /dev/null -w '%{http_code}' -u "git:$reader" -X POST "$url/smoke.git/git-receive-pack")" = 403
-      - name: Test exact image binary with S3 replication
+      - name: Test exact image binary with S3 replication and OTLP export
         run: |
           container=$(docker create ogit-tested:ci)
           docker cp "$container:/app" "$RUNNER_TEMP/ogit-image"
           docker rm "$container"
-          OGIT_TEST_BINARY="$RUNNER_TEMP/ogit-image" go test -tags=integration -count=1 -timeout=5m ./cmd -run '^TestFlociProcessIntegration$'
+          OGIT_TEST_BINARY="$RUNNER_TEMP/ogit-image" go test -tags=integration -count=1 -timeout=5m ./cmd -run '^Test(FlociProcessIntegration|ProcessTelemetryExport)$'
       - name: Save tested image
         run: docker save ogit-tested:ci -o "$RUNNER_TEMP/ogit-image.tar"
       - uses: actions/upload-artifact@v4

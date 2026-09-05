@@ -7,6 +7,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
 	z "github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func HTTPLogger(logger z.Logger) fiber.Handler {
@@ -22,6 +23,10 @@ func HTTPLogger(logger z.Logger) fiber.Handler {
 
 		if slices.Contains([]string{"/health", "/metrics", "/favicon.ico"}, c.Path()) {
 			return err
+		}
+
+		if sc := trace.SpanContextFromContext(c.Context()); sc.IsValid() {
+			_logger.Str("trace_id", sc.TraceID().String()).Str("span_id", sc.SpanID().String())
 		}
 
 		_logger.

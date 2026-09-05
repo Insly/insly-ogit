@@ -17,6 +17,7 @@ import (
 	s3store "github.com/labbs/git-server-s3/pkg/storage/s3"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 type testRepo struct {
@@ -55,6 +56,7 @@ func TestReceivePackChecksClientOldHead(t *testing.T) {
 	c := makeCommit(t, s, a, "c")
 	ref := plumbing.ReferenceName("refs/heads/main")
 	require.NoError(t, s.SetReference(plumbing.NewHashReference(ref, a)))
+	telemetry := testutil.ObserveTelemetry(t)
 	push := func(old, next plumbing.Hash) error {
 		srv, ep, err := GetTransportServer("repo.git", repo)
 		if err != nil {
@@ -83,6 +85,23 @@ func TestReceivePackChecksClientOldHead(t *testing.T) {
 	// Deletions and incomplete commits may never remove or corrupt the serving branch.
 	require.Error(t, push(b, plumbing.ZeroHash))
 	require.Error(t, push(b, plumbing.NewHash(strings.Repeat("f", 40))))
+	metrics := telemetry.Collect(t)
+	require.Contains(t, metrics, "ogit.git.pushes")
+	outcomes := map[string]int64{}
+	for _, point := range metrics["ogit.git.pushes"].Data.(metricdata.Sum[int64]).DataPoints {
+		outcome, _ := point.Attributes.Value("ogit.outcome")
+		outcomes[outcome.AsString()] = point.Value
+		require.Equal(t, 1, point.Attributes.Len())
+	}
+	require.Equal(t, map[string]int64{"success": 1, "conflict": 1, "rejected": 1, "error": 1}, outcomes)
+	require.Contains(t, metrics, "ogit.ref.publications")
+	publications := map[string]int64{}
+	for _, point := range metrics["ogit.ref.publications"].Data.(metricdata.Sum[int64]).DataPoints {
+		outcome, _ := point.Attributes.Value("ogit.outcome")
+		publications[outcome.AsString()] += point.Value
+	}
+	require.Equal(t, map[string]int64{"success": 1, "conflict": 1}, publications)
+
 }
 func TestConcurrentReceivePackHasOneWinner(t *testing.T) {
 	f := testutil.NewS3(t)

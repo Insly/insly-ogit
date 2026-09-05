@@ -16,6 +16,7 @@ import (
 	s3store "github.com/labbs/git-server-s3/pkg/storage/s3"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 const branch plumbing.ReferenceName = "refs/heads/main"
@@ -53,6 +54,7 @@ func TestReplicationCompleteForwardOnlyAndRecovery(t *testing.T) {
 	a := commit(t, src, plumbing.ZeroHash, "flag: false")
 	require.NoError(t, src.SetReference(plumbing.NewHashReference(branch, a)))
 	mirror := Mirror{Source: src, Destination: dst, Branch: branch}
+	telemetry := testutil.ObserveTelemetry(t)
 	require.NoError(t, mirror.Reconcile(ctx))
 	assertHead := func(want plumbing.Hash) {
 		t.Helper()
@@ -97,6 +99,16 @@ func TestReplicationCompleteForwardOnlyAndRecovery(t *testing.T) {
 	body, err := file.Contents()
 	require.NoError(t, err)
 	require.Equal(t, "flag: true", body)
+	metrics := telemetry.Collect(t)
+	require.Contains(t, metrics, "ogit.replication.duration")
+	outcomes := map[string]uint64{}
+	for _, point := range metrics["ogit.replication.duration"].Data.(metricdata.Histogram[float64]).DataPoints {
+		outcome, _ := point.Attributes.Value("ogit.outcome")
+		outcomes[outcome.AsString()] = point.Count
+		require.Equal(t, 1, point.Attributes.Len())
+	}
+	require.Equal(t, map[string]uint64{"success": 3, "error": 2}, outcomes)
+
 }
 func TestReplicationRejectsMissingAndCorruptObjects(t *testing.T) {
 	for _, corrupt := range []bool{false, true} {

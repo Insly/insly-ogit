@@ -36,7 +36,7 @@ func (c *RepoController) CreateRepo(ctx fiber.Ctx) error {
 	// Normalize the repository name to ensure proper .git suffix and path format
 	normName := common.NormalizeRepoPath(req.Name)
 
-	err := c.Storage.CreateRepository(normName)
+	err := storage.WithContext(ctx.Context(), c.Storage).CreateRepository(normName)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to create repository")
 		return ctx.Status(fiber.StatusInternalServerError).SendString("failed to create repository")
@@ -53,7 +53,7 @@ func (c *RepoController) CreateRepo(ctx fiber.Ctx) error {
 func (c *RepoController) ListRepos(ctx fiber.Ctx) error {
 	logger := c.Logger.With().Str("event", "ListRepos").Logger()
 
-	repos, err := c.Storage.ListRepositories()
+	repos, err := storage.WithContext(ctx.Context(), c.Storage).ListRepositories()
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to list repositories")
 		return ctx.Status(fiber.StatusInternalServerError).SendString("failed to list repositories")

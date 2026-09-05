@@ -9,6 +9,7 @@ import (
 	"github.com/labbs/git-server-s3/internal/api/router"
 	"github.com/labbs/git-server-s3/pkg/logger/zerolog"
 	"github.com/labbs/git-server-s3/pkg/storage"
+	"github.com/labbs/git-server-s3/pkg/telemetry"
 
 	"github.com/goccy/go-json"
 	"github.com/gofiber/fiber/v3"
@@ -35,6 +36,7 @@ func (c *HttpConfig) Configure() {
 	}
 
 	r := fiber.New(fiberConfig)
+	r.Use(telemetry.HTTP())
 
 	if c.HttpLogs {
 		r.Use(zerolog.HTTPLogger(c.Logger))

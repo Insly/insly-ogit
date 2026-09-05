@@ -31,7 +31,13 @@ func NewBootstrap() *cli.Command {
 		if err != nil {
 			return err
 		}
-		store := s3store.NewS3Storage(logger.NewLogger(config.Logger.Level, config.Logger.Pretty, c.Root().Version))
+		l := logger.NewLogger(config.Logger.Level, config.Logger.Pretty, c.Root().Version)
+		shutdown, err := startTelemetry(ctx, c.Root().Version, l)
+		if err != nil {
+			return err
+		}
+		defer shutdown()
+		store := s3store.NewS3Storage(l)
 		if err := store.Configure(); err != nil {
 			return err
 		}
