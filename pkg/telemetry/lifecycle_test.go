@@ -55,7 +55,11 @@ func TestGRPCExportAndSampling(t *testing.T) {
 			traces, metrics := &traceReceiver{}, &metricReceiver{}
 			tracepb.RegisterTraceServiceServer(server, traces)
 			metricpb.RegisterMetricsServiceServer(server, metrics)
-			go server.Serve(l)
+			go func() {
+				if err := server.Serve(l); err != nil {
+					t.Error(err)
+				}
+			}()
 			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://"+l.Addr().String())
 			t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
 			t.Setenv("OTEL_TRACES_SAMPLER", sampler)
@@ -83,11 +87,12 @@ func TestSignalsAreOptIn(t *testing.T) {
 			cleanEnv(t)
 			var traces, metrics atomic.Int32
 			receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/v1/traces" {
+				switch r.URL.Path {
+				case "/v1/traces":
 					traces.Add(1)
-				} else if r.URL.Path == "/v1/metrics" {
+				case "/v1/metrics":
 					metrics.Add(1)
-				} else {
+				default:
 					t.Errorf("unexpected path %s", r.URL.Path)
 				}
 				w.Header().Set("Content-Type", "application/x-protobuf")

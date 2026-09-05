@@ -129,7 +129,7 @@ func (sc *SSHConfig) ensureHostKey() (gossh.Signer, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if err := pem.Encode(f, &pem.Block{Type: "PRIVATE KEY", Bytes: b}); err != nil {
 		return nil, err
@@ -312,7 +312,7 @@ func (sc *SSHConfig) handleUploadPack(s gliderssh.Session, srv transport.Transpo
 		_ = s.Exit(1)
 		return
 	}
-	defer resp.Close()
+	defer func() { _ = resp.Close() }()
 
 	// Send response to client
 	if err := resp.Encode(s); err != nil {

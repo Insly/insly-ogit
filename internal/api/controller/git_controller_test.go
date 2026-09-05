@@ -50,8 +50,8 @@ func buildGitRepo(t *testing.T, n int) (*memory.Storage, plumbing.Hash) {
 	for i := 0; i < n; i++ {
 		f, err := fs.Create(fmt.Sprintf("f%d.txt", i))
 		require.NoError(t, err)
-		fmt.Fprintf(f, "content %d", i)
-		f.Close()
+		_, _ = fmt.Fprintf(f, "content %d", i)
+		_ = f.Close()
 
 		_, err = wt.Add(fmt.Sprintf("f%d.txt", i))
 		require.NoError(t, err)
@@ -104,7 +104,7 @@ func TestInfoRefs_AdvertisesShallowCapability(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test.git/info/refs?service=git-upload-pack", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, 200, resp.StatusCode)
 	assert.Equal(t, "application/x-git-upload-pack-advertisement",
@@ -127,7 +127,7 @@ func TestInfoRefs_InvalidService(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test.git/info/refs?service=git-bad-service", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, 400, resp.StatusCode)
 }
@@ -151,7 +151,7 @@ func TestHandleUploadPack_ShallowIntercepted(t *testing.T) {
 
 	resp, err := app.Test(req, fiber.TestConfig{Timeout: 10 * time.Second, FailOnTimeout: true}) // 10 s timeout
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, 200, resp.StatusCode)
 	assert.Equal(t, "application/x-git-upload-pack-result",
@@ -186,7 +186,7 @@ func TestHandleUploadPack_RejectsUnknownRepo(t *testing.T) {
 	req := httptest.NewRequest("POST", "/missing.git/git-upload-pack", bytes.NewReader([]byte{}))
 	resp, err := app.Test(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.NotEqual(t, 200, resp.StatusCode)
 }
@@ -233,7 +233,7 @@ func TestNativeGitShallowCloneAndDeepen(t *testing.T) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		for k, vs := range resp.Header {
 			for _, v := range vs {
 				w.Header().Add(k, v)

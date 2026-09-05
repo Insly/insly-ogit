@@ -67,7 +67,7 @@ func (gc *GitController) InfoRefs(ctx fiber.Ctx) error {
 		if err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
-		adv.Capabilities.Set(capability.Shallow)
+		_ = adv.Capabilities.Set(capability.Shallow)
 		if err := common.WriteServiceAdvertisement(ctx.Response().BodyWriter(), service); err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
@@ -167,7 +167,7 @@ func (gc *GitController) HandleUploadPack(c fiber.Ctx) error {
 		logger.Error().Err(err).Msg("Failed to execute upload pack")
 		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 	}
-	defer resp.Close()
+	defer func() { _ = resp.Close() }()
 
 	c.Set("Content-Type", "application/x-git-upload-pack-result")
 	logger.Debug().Msg("Encoding response")

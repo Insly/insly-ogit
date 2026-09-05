@@ -48,12 +48,7 @@ vet: ## Check code with go vet
 
 # Linting (requires golangci-lint)
 lint: ## Lint code (requires golangci-lint)
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
-	else \
-		echo "⚠️  golangci-lint not installed. Installation:"; \
-		echo "go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
-	fi
+	golangci-lint run
 
 # Build
 build: ## Build the server
@@ -109,7 +104,7 @@ update-deps: ## Update dependencies
 	go mod tidy
 
 # Complete check (CI)
-ci: vet test-unit ## CI/CD checks
+ci: lint vet test-unit ## CI/CD checks
 
 # Memory tests with Valgrind (Linux only)
 memcheck: ## Memory tests (Linux only)
@@ -121,7 +116,7 @@ memcheck: ## Memory tests (Linux only)
 
 # Install development tools
 install-tools: ## Install development tools
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@echo "Install golangci-lint v2.13.2 from the official release linked in README.md"
 	go install github.com/cosmtrek/air@latest
 	go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
 

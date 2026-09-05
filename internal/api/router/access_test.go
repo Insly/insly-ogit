@@ -63,7 +63,7 @@ func TestAccessRolesAndReadOnly(t *testing.T) {
 			}
 			resp, err := app.Test(req)
 			require.NoError(t, err)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			require.Equal(t, tc.status, resp.StatusCode, "readonly=%v %s %s token=%s", readOnly, tc.method, tc.path, tc.token)
 		}
 	}

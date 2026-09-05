@@ -189,7 +189,7 @@ func TestObjectWriteCannotCorruptExistingHash(t *testing.T) {
 	require.NoError(t, err)
 	r, err := saved.Reader()
 	require.NoError(t, err)
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	body, err := io.ReadAll(r)
 	require.NoError(t, err)
 	require.Equal(t, "original", string(body))

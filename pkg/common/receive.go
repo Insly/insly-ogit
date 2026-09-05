@@ -93,7 +93,7 @@ func (s *receiveSession) ReceivePack(ctx context.Context, req *packp.ReferenceUp
 		st = s3.WithContext(ctx)
 	}
 	if req.Packfile != nil {
-		defer req.Packfile.Close()
+		defer func() { _ = req.Packfile.Close() }()
 		if err := packfile.UpdateObjectStorage(st, req.Packfile); err != nil {
 			report.UnpackStatus = err.Error()
 			return finish(err)

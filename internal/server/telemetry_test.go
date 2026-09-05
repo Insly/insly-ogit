@@ -35,7 +35,7 @@ func TestHTTPObservability(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer SECRET-token")
 	resp, err := cfg.Fiber.Test(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	require.Equal(t, 503, resp.StatusCode)
@@ -74,7 +74,7 @@ func TestProbeMetricsWithoutProbeSpans(t *testing.T) {
 	for _, path := range []string{"/health", "/ready"} {
 		resp, err := cfg.Fiber.Test(httptest.NewRequest("GET", path, nil))
 		require.NoError(t, err)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		require.Equal(t, 200, resp.StatusCode)
 	}
 	require.Empty(t, o.Spans.GetSpans())
@@ -108,7 +108,7 @@ func TestRejectedPushIsVisibleDespiteHTTP200(t *testing.T) {
 	require.NoError(t, req.Encode(&body))
 	response, err := cfg.Fiber.Test(httptest.NewRequest("POST", "/private.git/git-receive-pack", &body))
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	require.Equal(t, 200, response.StatusCode)
 	var report packp.ReportStatus
 	require.NoError(t, report.Decode(response.Body))

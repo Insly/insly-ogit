@@ -94,7 +94,7 @@ func (dc *DebugController) Goroutines(ctx fiber.Ctx) error {
 
 	// Get goroutine stack traces
 	buf := bytes.NewBuffer(make([]byte, 0, 1024*1024)) // 1MB buffer
-	pprof.Lookup("goroutine").WriteTo(buf, 1)
+	_ = pprof.Lookup("goroutine").WriteTo(buf, 1)
 
 	ctx.Set("Content-Type", "text/plain")
 	return ctx.SendString(buf.String())

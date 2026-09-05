@@ -30,6 +30,10 @@ jobs:
           go mod tidy
           git diff --exit-code -- go.mod go.sum
           test -z "$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
+      - name: Lint Go code including integration tests
+        uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          version: v2.13.2
       - name: Vet and test all packages, native Git and S3 contracts
         run: |
           go vet ./...

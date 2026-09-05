@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/labbs/git-server-s3/internal/config"
 	"github.com/labbs/git-server-s3/pkg/storage/local"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -15,12 +16,15 @@ func TestSSHConfig_Configure(t *testing.T) {
 	// Create temporary directory for test
 	tempDir, err := os.MkdirTemp("", "ssh-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Setup storage
 	logger := zerolog.New(os.Stderr).Level(zerolog.ErrorLevel)
 	localStorage := local.NewLocalStorage(logger)
-	localStorage.Configure()
+	previous := config.Storage.Local.Path
+	t.Cleanup(func() { config.Storage.Local.Path = previous })
+	config.Storage.Local.Path = filepath.Join(tempDir, "repositories")
+	require.NoError(t, localStorage.Configure())
 
 	// Create SSH config
 	sshConfig := &SSHConfig{
@@ -153,7 +157,7 @@ func TestSSHConfig_repoPathFromSSHArg(t *testing.T) {
 func TestSSHConfig_ensureHostKey(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "hostkey-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	logger := zerolog.New(os.Stderr).Level(zerolog.ErrorLevel)
 	sshConfig := &SSHConfig{

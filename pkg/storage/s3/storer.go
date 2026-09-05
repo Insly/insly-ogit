@@ -59,7 +59,7 @@ func (s *S3Storer) SetEncodedObject(obj plumbing.EncodedObject) (plumbing.Hash, 
 	if err != nil {
 		return plumbing.ZeroHash, err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	content, err := io.ReadAll(reader)
 	if err != nil {
@@ -106,7 +106,7 @@ func (s *S3Storer) EncodedObject(t plumbing.ObjectType, hash plumbing.Hash) (plu
 		}
 		return nil, err
 	}
-	defer result.Body.Close()
+	defer func() { _ = result.Body.Close() }()
 
 	content, err := io.ReadAll(result.Body)
 	if err != nil {
@@ -125,7 +125,7 @@ func (s *S3Storer) EncodedObject(t plumbing.ObjectType, hash plumbing.Hash) (plu
 
 	obj.SetType(objectType)
 	obj.SetSize(int64(len(content)))
-	obj.Write(content)
+	_, _ = obj.Write(content)
 
 	if obj.Hash() != hash {
 		return nil, fmt.Errorf("object hash mismatch: %s", hash)
@@ -246,9 +246,7 @@ func (s *S3Storer) IterReferences() (storer.ReferenceIter, error) {
 			key := aws.ToString(obj.Key)
 			relativePath := key[len(s.getObjectKey("")):]
 			// Remove leading slash if present
-			if strings.HasPrefix(relativePath, "/") {
-				relativePath = relativePath[1:]
-			}
+			relativePath = strings.TrimPrefix(relativePath, "/")
 			refName := plumbing.ReferenceName(relativePath)
 
 			s.logger.Debug().
@@ -303,7 +301,7 @@ func (s *S3Storer) Config() (*config.Config, error) {
 		// Return default config if not found
 		return &config.Config{}, nil
 	}
-	defer result.Body.Close()
+	defer func() { _ = result.Body.Close() }()
 
 	content, err := io.ReadAll(result.Body)
 	if err != nil {
@@ -360,7 +358,7 @@ func (s *S3Storer) Shallow() ([]plumbing.Hash, error) {
 	if err != nil {
 		return nil, nil // No shallow file means no shallow commits
 	}
-	defer result.Body.Close()
+	defer func() { _ = result.Body.Close() }()
 
 	content, err := io.ReadAll(result.Body)
 	if err != nil {

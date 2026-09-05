@@ -68,7 +68,7 @@ func (f *S3) serve(w http.ResponseWriter, r *http.Request) {
 	fail := func(code int, name string) {
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(code)
-		fmt.Fprintf(w, "<Error><Code>%s</Code></Error>", name)
+		_, _ = fmt.Fprintf(w, "<Error><Code>%s</Code></Error>", name)
 	}
 	if r.URL.Query().Get("list-type") == "2" {
 		type item struct{ Key string }

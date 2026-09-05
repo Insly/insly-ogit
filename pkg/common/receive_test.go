@@ -66,7 +66,7 @@ func TestReceivePackChecksClientOldHead(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer sess.Close()
+		defer func() { _ = sess.Close() }()
 		req := packp.NewReferenceUpdateRequest()
 		_ = req.Capabilities.Set(capability.ReportStatus)
 		req.Commands = []*packp.Command{{Name: ref, Old: old, New: next}}
@@ -120,7 +120,7 @@ func TestConcurrentReceivePackHasOneWinner(t *testing.T) {
 			defer wg.Done()
 			srv, ep, _ := GetTransportServer("repo.git", repo)
 			sess, _ := srv.NewReceivePackSession(ep, nil)
-			defer sess.Close()
+			defer func() { _ = sess.Close() }()
 			req := packp.NewReferenceUpdateRequest()
 			_ = req.Capabilities.Set(capability.ReportStatus)
 			req.Commands = []*packp.Command{{Name: ref, Old: a, New: h}}

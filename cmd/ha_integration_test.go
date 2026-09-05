@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +23,7 @@ func runHAProcessIntegration(t *testing.T, endpoint string) {
 	bin := os.Getenv("OGIT_TEST_BINARY")
 	if bin == "" {
 		bin = filepath.Join(t.TempDir(), "ogit")
-		build := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-o", bin, ".")
+		build := exec.Command("go", "build", "-o", bin, ".")
 		out, err := build.CombinedOutput()
 		require.NoError(t, err, string(out))
 	}
@@ -67,7 +66,7 @@ func runHAProcessIntegration(t *testing.T, endpoint string) {
 	start := func(cfg string, port int) *exec.Cmd {
 		log, err := os.CreateTemp(root, "server-*.log")
 		require.NoError(t, err)
-		t.Cleanup(func() { log.Close() })
+		t.Cleanup(func() { _ = log.Close() })
 		c := exec.Command(bin, "server", "-c", cfg)
 		c.Stdout = log
 		c.Stderr = log
@@ -83,7 +82,7 @@ func runHAProcessIntegration(t *testing.T, endpoint string) {
 			if err != nil {
 				return false
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return resp.StatusCode == 200
 		}, 10*time.Second, 50*time.Millisecond)
 		return c
@@ -121,6 +120,6 @@ func runHAProcessIntegration(t *testing.T, endpoint string) {
 	req.SetBasicAuth("git", "admin")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	require.Equal(t, 403, resp.StatusCode)
 }

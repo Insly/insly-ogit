@@ -306,7 +306,7 @@ func BenchmarkCreateRepo(b *testing.B) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, _ := app.Test(req)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 }
 
@@ -324,6 +324,6 @@ func BenchmarkListRepos(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		req := httptest.NewRequest("GET", "/api/repos", nil)
 		resp, _ := app.Test(req)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 }

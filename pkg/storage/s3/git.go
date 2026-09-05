@@ -114,7 +114,7 @@ Start adding your files and make your first commit!
 	readmeBlob := &plumbing.MemoryObject{}
 	readmeBlob.SetType(plumbing.BlobObject)
 	readmeBlob.SetSize(int64(len(readmeContent)))
-	readmeBlob.Write(readmeContent)
+	_, _ = readmeBlob.Write(readmeContent)
 
 	// Store the blob
 	readmeHash, err := storer.SetEncodedObject(readmeBlob)

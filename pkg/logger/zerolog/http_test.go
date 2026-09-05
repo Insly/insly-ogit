@@ -28,7 +28,7 @@ func TestHTTPLoggerCorrelatesRequest(t *testing.T) {
 			}
 			resp, err := app.Test(req)
 			require.NoError(t, err)
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			body, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 			require.Equal(t, 202, resp.StatusCode)

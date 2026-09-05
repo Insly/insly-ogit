@@ -52,7 +52,7 @@ func (s *S3Storer) readReference(name plumbing.ReferenceName) (*plumbing.Referen
 		}
 		return nil, "", err
 	}
-	defer out.Body.Close()
+	defer func() { _ = out.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(out.Body, 4097))
 	if err != nil {
 		return nil, "", err

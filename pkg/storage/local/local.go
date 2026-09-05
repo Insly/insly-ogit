@@ -21,7 +21,7 @@ func (c *LocalConfig) Configure() error {
 	// check if local storage path is a directory
 	info, err := os.Stat(config.Storage.Local.Path)
 	if os.IsNotExist(err) {
-		os.MkdirAll(config.Storage.Local.Path, os.ModePerm)
+		return os.MkdirAll(config.Storage.Local.Path, os.ModePerm)
 	} else if err != nil {
 		return err
 	}

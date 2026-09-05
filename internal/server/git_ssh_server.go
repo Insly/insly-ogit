@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -51,16 +52,17 @@ func (bc *bufferedChannel) Write(p []byte) (n int, err error) {
 	n, err = bc.writer.Write(p)
 	if err == nil {
 		// Flush immediately for Git protocol compatibility
-		bc.writer.Flush()
+		err = bc.writer.Flush()
 	}
 	return n, err
 }
 
 func (bc *bufferedChannel) Close() error {
+	var err error
 	if bc.writer != nil {
-		bc.writer.Flush()
+		err = bc.writer.Flush()
 	}
-	return bc.Channel.Close()
+	return errors.Join(err, bc.Channel.Close())
 }
 
 // Unlike generic SSH servers, this implementation handles the Git protocol directly.
@@ -171,23 +173,23 @@ func (s *GitSSHServer) handleConnection(conn net.Conn) {
 		Str("remote", conn.RemoteAddr().String()).
 		Logger()
 
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Set connection timeouts to handle large Git operations
 	// This prevents "remote end hung up unexpectedly" errors
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		// Enable TCP keep-alive to detect dead connections
-		tcpConn.SetKeepAlive(true)
-		tcpConn.SetKeepAlivePeriod(10 * time.Second) // More aggressive keepalive
+		_ = tcpConn.SetKeepAlive(true)
+		_ = tcpConn.SetKeepAlivePeriod(10 * time.Second) // More aggressive keepalive
 
 		// Set very long timeouts for large operations (30 minutes)
 		// This matches GitHub's behavior for large pushes
-		tcpConn.SetReadDeadline(time.Now().Add(1800 * time.Second))  // 30 minutes
-		tcpConn.SetWriteDeadline(time.Now().Add(1800 * time.Second)) // 30 minutes
+		_ = tcpConn.SetReadDeadline(time.Now().Add(1800 * time.Second))  // 30 minutes
+		_ = tcpConn.SetWriteDeadline(time.Now().Add(1800 * time.Second)) // 30 minutes
 
 		// Set TCP buffer sizes for better performance
-		tcpConn.SetReadBuffer(2 * 1024 * 1024)  // 2MB read buffer
-		tcpConn.SetWriteBuffer(2 * 1024 * 1024) // 2MB write buffer
+		_ = tcpConn.SetReadBuffer(2 * 1024 * 1024)  // 2MB read buffer
+		_ = tcpConn.SetWriteBuffer(2 * 1024 * 1024) // 2MB write buffer
 	}
 
 	// Perform SSH handshake
@@ -196,7 +198,7 @@ func (s *GitSSHServer) handleConnection(conn net.Conn) {
 		logger.Error().Err(err).Msg("SSH handshake failed")
 		return
 	}
-	defer sshConn.Close()
+	defer func() { _ = sshConn.Close() }()
 
 	logger.Info().Str("user", sshConn.User()).Msg("SSH connection established")
 
@@ -214,7 +216,7 @@ func (s *GitSSHServer) handleChannel(conn *ssh.ServerConn, newChannel ssh.NewCha
 	// Git operations only use "session" channel type
 	if newChannel.ChannelType() != "session" {
 		logger.Debug().Str("channel_type", newChannel.ChannelType()).Msg("Rejecting non-session channel")
-		newChannel.Reject(ssh.UnknownChannelType, "only session channels are supported")
+		_ = newChannel.Reject(ssh.UnknownChannelType, "only session channels are supported")
 		return
 	}
 
@@ -224,7 +226,7 @@ func (s *GitSSHServer) handleChannel(conn *ssh.ServerConn, newChannel ssh.NewCha
 		logger.Error().Err(err).Msg("Failed to accept channel")
 		return
 	}
-	defer channel.Close()
+	defer func() { _ = channel.Close() }()
 
 	// Process channel requests
 	for req := range requests {
@@ -236,7 +238,7 @@ func (s *GitSSHServer) handleChannel(conn *ssh.ServerConn, newChannel ssh.NewCha
 		default:
 			// Reject other request types
 			if req.WantReply {
-				req.Reply(false, nil)
+				_ = req.Reply(false, nil)
 			}
 		}
 	}
@@ -257,7 +259,7 @@ func (s *GitSSHServer) handleExecRequest(conn *ssh.ServerConn, channel ssh.Chann
 	service, repoPath := s.parseGitCommand(command)
 	if service == "" {
 		logger.Error().Msg("Invalid Git command")
-		req.Reply(false, nil)
+		_ = req.Reply(false, nil)
 		s.sendExitStatusAndClose(channel, 1)
 		return
 	}
@@ -268,9 +270,9 @@ func (s *GitSSHServer) handleExecRequest(conn *ssh.ServerConn, channel ssh.Chann
 		Logger()
 
 	// Accept the request
-	req.Reply(true, nil)
+	_ = req.Reply(true, nil)
 
-	var exitCode int = 0
+	exitCode := 0
 
 	// Handle the Git operation
 	switch service {
@@ -322,7 +324,7 @@ func (s *GitSSHServer) handleUploadPack(channel ssh.Channel, repoPath string, lo
 		return err
 	}
 
-	advRefs.Capabilities.Set(capability.Shallow)
+	_ = advRefs.Capabilities.Set(capability.Shallow)
 
 	// Always encode the advertised references, even if empty
 	if err := advRefs.Encode(bufferedChan); err != nil {
@@ -372,7 +374,7 @@ func (s *GitSSHServer) handleUploadPack(channel ssh.Channel, repoPath string, lo
 		logger.Error().Err(err).Msg("Upload pack failed")
 		return err
 	}
-	defer resp.Close()
+	defer func() { _ = resp.Close() }()
 
 	// Send response to client
 	if err := resp.Encode(bufferedChan); err != nil {

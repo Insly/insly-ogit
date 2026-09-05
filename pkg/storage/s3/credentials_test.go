@@ -36,7 +36,7 @@ func TestDefaultCredentialsAndRefresh(t *testing.T) {
 		if n == 1 {
 			expiry = time.Now().Add(-time.Second)
 		}
-		fmt.Fprintf(w, `{"AccessKeyId":"role%d","SecretAccessKey":"secret","Token":"session%d","Expiration":%q}`, n, n, expiry.UTC().Format(time.RFC3339))
+		_, _ = fmt.Fprintf(w, `{"AccessKeyId":"role%d","SecretAccessKey":"secret","Token":"session%d","Expiration":%q}`, n, n, expiry.UTC().Format(time.RFC3339))
 	}))
 	defer role.Close()
 	t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", role.URL)
