@@ -78,7 +78,7 @@ where applicable. A canceled reconciliation during shutdown is not an outage.
 | `ogit.replication.last_success.age` (gauge, seconds) | none | Time since the controller last successfully validated the source and local branch; before first success, time since controller start. Detects unreachable sources and stalled reconciliation. |
 | `ogit.replication.pending.age` (gauge, seconds) | none | Age of a known pending revision reported by a completed attempt. Detects sustained inability to apply observed updates. |
 | `client.call.duration` (histogram) | `rpc.service`, `rpc.method`, `exception.type` when present | S3 operation latency and call rate from count. |
-| `client.call.errors` (counter) | same SDK attributes | Diagnose S3 permission, availability and transport errors by operation/error type. |
+| `client.call.errors` (counter) | same SDK attributes | Count failed SDK attempts, including retries that later succeed; diagnose S3 permission, availability and transport errors by operation/error type. |
 | `client.call.attempts` (counter) | same SDK attributes | Compare attempt rate with call rate to detect retry amplification. |
 
 Freshness gauges exist only in processes running a replication controller. They
