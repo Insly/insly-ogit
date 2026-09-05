@@ -16,9 +16,9 @@ var version = "development"
 func main() {
 	sources := cli.NewValueSourceChain()
 	cmd := &cli.Command{
-		Name:    "stack-deployer",
+		Name:    "ogit",
 		Version: version,
-		Usage:   "Application used to deploy vision stack",
+		Usage:   "Git service backed by S3 or local storage",
 		Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
 			config := cmd.String("config")
 			if len(config) > 0 {
@@ -35,6 +35,7 @@ func main() {
 		},
 		Commands: []*cli.Command{
 			cmd.NewInstance(version),
+			cmd.NewBootstrap(),
 		},
 	}
 

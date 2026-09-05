@@ -1,7 +1,10 @@
 package server
 
 import (
+	"context"
+	"github.com/labbs/git-server-s3/pkg/replication"
 	"strconv"
+	"time"
 
 	"github.com/labbs/git-server-s3/internal/api/router"
 	"github.com/labbs/git-server-s3/pkg/logger/zerolog"
@@ -17,6 +20,7 @@ import (
 )
 
 type HttpConfig struct {
+	Mirror   *replication.Mirror
 	Port     int
 	HttpLogs bool
 	Fiber    *fiber.App
@@ -49,6 +53,16 @@ func (c *HttpConfig) Configure() {
 		})
 	})
 
+	r.Get("/ready", func(cctx *fiber.Ctx) error {
+		if c.Mirror != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := c.Mirror.Ready(ctx); err != nil {
+				return cctx.SendStatus(503)
+			}
+		}
+		return cctx.SendStatus(200)
+	})
 	c.Fiber = r
 }
 
@@ -59,6 +73,7 @@ func (c *HttpConfig) NewServer() error {
 		Logger:  c.Logger,
 		Fiber:   c.Fiber,
 		Storage: c.Storage,
+		Mirror:  c.Mirror,
 	}
 
 	apirc.Configure()

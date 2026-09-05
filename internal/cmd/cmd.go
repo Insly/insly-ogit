@@ -2,6 +2,11 @@ package cmd
 
 import (
 	"context"
+	"fmt"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/labbs/git-server-s3/pkg/common"
+	"github.com/labbs/git-server-s3/pkg/replication"
+	s3store "github.com/labbs/git-server-s3/pkg/storage/s3"
 	"os"
 	"os/signal"
 	"sync"
@@ -24,7 +29,7 @@ func NewInstance(version string) *cli.Command {
 
 	return &cli.Command{
 		Name:   "server",
-		Usage:  "Start the stack-deployer application",
+		Usage:  "Serve Git repositories",
 		Flags:  serverFlags,
 		Action: runServer,
 	}
@@ -36,11 +41,15 @@ func getFlags() (list []cli.Flag) {
 	list = append(list, flags.ServerFlags()...)
 	list = append(list, flags.LoggerFlags()...)
 	list = append(list, flags.StorageFlags()...)
+	list = append(list, flags.HAFlags()...)
 	return
 }
 
 // runServer starts the server following the configuration.
 func runServer(ctx context.Context, c *cli.Command) error {
+	if err := config.ValidateServer(); err != nil {
+		return err
+	}
 	l := logger.NewLogger(config.Logger.Level, config.Logger.Pretty, c.Root().Version)
 
 	str, err := storage.NewGitRepositoryStorage(l)
@@ -54,12 +63,47 @@ func runServer(ctx context.Context, c *cli.Command) error {
 		return err
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var mirror *replication.Mirror
+	if config.Replication.SourceBucket != "" {
+		local, ok := str.(*s3store.S3Storage)
+		if !ok {
+			return fmt.Errorf("replication requires S3 storage")
+		}
+		rc := config.Replication
+		sc := config.Storage.S3
+		client, err := s3store.NewClient(ctx, rc.SourceRegion, rc.SourceEndpoint, sc.AccessKey, sc.SecretKey, sc.SessionToken)
+		if err != nil {
+			return err
+		}
+		sourceRepo := rc.SourceRepository
+		if sourceRepo == "" {
+			sourceRepo = rc.Repository
+		}
+		source := s3store.NewS3Storer(client, rc.SourceBucket, "repositories/"+common.NormalizeRepoPath(sourceRepo), l)
+		mirror = &replication.Mirror{Source: source, Destination: local.StorerForRepository(rc.Repository), Branch: plumbing.NewBranchReferenceName(rc.Branch)}
+	}
 	// Setup signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
 
 	// WaitGroup to wait for all servers to shutdown
 	var wg sync.WaitGroup
+	if mirror != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = mirror.Run(ctx, config.Replication.Interval, config.Replication.Timeout, func(status replication.Status) {
+				event := l.Info()
+				if status.Error != "" {
+					event = l.Warn()
+				}
+				event.Str("source_revision", status.SourceRevision).Str("applied_revision", status.AppliedRevision).Str("error", status.Error).Time("last_success", status.LastSuccess).Msg("Regional replication reconciled")
+			})
+		}()
+	}
 
 	// Configure HTTP server
 	var httpConfig server.HttpConfig
@@ -67,6 +111,7 @@ func runServer(ctx context.Context, c *cli.Command) error {
 	httpConfig.HttpLogs = config.Server.HttpLogs
 	httpConfig.Logger = l
 	httpConfig.Storage = str
+	httpConfig.Mirror = mirror
 
 	// Start HTTP server in a goroutine
 	wg.Add(1)
@@ -105,7 +150,11 @@ func runServer(ctx context.Context, c *cli.Command) error {
 	}
 
 	// Wait for interrupt signal
-	<-sigChan
+	select {
+	case <-sigChan:
+	case <-ctx.Done():
+	}
+	cancel()
 	l.Info().Msg("Shutdown signal received, stopping servers...")
 
 	// Shutdown servers gracefully
