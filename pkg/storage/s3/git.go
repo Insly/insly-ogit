@@ -74,45 +74,19 @@ func (s3s *S3Storage) GetStorer(repoPath string) (storer.Storer, error) {
 }
 
 func (s3s *S3Storage) CreateRepository(repoPath string) error {
-	if s3s.RepositoryExists(repoPath) {
+	repoKey := s3s.getRepoKey(repoPath)
+	st := NewS3Storer(s3s.client, s3s.bucket, repoKey, s3s.Logger)
+	_, err := st.Reference("refs/heads/main")
+	if err == nil {
 		return errors.New("repository already exists")
 	}
-
-	// Create a minimal bare repository structure in S3
-	repoKey := s3s.getRepoKey(repoPath)
-
-	// Create basic config
-	configContent := `[core]
-	repositoryformatversion = 0
-	filemode = true
-	bare = true
-`
-	_, err := s3s.client.PutObject(context.TODO(), &awss3.PutObjectInput{
-		Bucket: aws.String(s3s.bucket),
-		Key:    aws.String(repoKey + "/config"),
-		Body:   strings.NewReader(configContent),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create config: %w", err)
+	if !errors.Is(err, plumbing.ErrReferenceNotFound) {
+		return err
 	}
-
-	// Create empty objects and refs directories by creating marker files
-	_, err = s3s.client.PutObject(context.TODO(), &awss3.PutObjectInput{
-		Bucket: aws.String(s3s.bucket),
-		Key:    aws.String(repoKey + "/objects/.gitkeep"),
-		Body:   strings.NewReader(""),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create objects directory: %w", err)
+	if err := st.EnsureRepository("refs/heads/main"); err != nil {
+		return err
 	}
-
-	// Create initial commit and main branch
-	if err := s3s.createInitialCommit(repoKey); err != nil {
-		return fmt.Errorf("failed to create initial commit: %w", err)
-	}
-
-	s3s.Logger.Info().Str("repo", repoPath).Msg("Repository created in S3 with initial commit")
-	return nil
+	return s3s.createInitialCommit(repoKey)
 }
 
 // createInitialCommit creates an initial commit with README.md and main branch
@@ -203,13 +177,6 @@ Start adding your files and make your first commit!
 	mainRef := plumbing.NewHashReference(plumbing.ReferenceName("refs/heads/main"), commitHash)
 	if err := storer.SetReference(mainRef); err != nil {
 		return fmt.Errorf("failed to create main branch: %w", err)
-	}
-
-	// Create HEAD pointing to main branch (symbolic reference)
-	// This ensures that clone will checkout main branch by default
-	headRef := plumbing.NewSymbolicReference(plumbing.HEAD, "refs/heads/main")
-	if err := storer.SetReference(headRef); err != nil {
-		return fmt.Errorf("failed to create HEAD: %w", err)
 	}
 
 	s3s.Logger.Debug().

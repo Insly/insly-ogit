@@ -226,7 +226,11 @@ func (gc *GitController) HandleReceivePack(c *fiber.Ctx) error {
 	if err != nil {
 		logger.Error().Err(err).Msg("Receive pack failed")
 		// Even if there was an error, we still need to send the report
-		_ = report.Encode(c.Response().BodyWriter())
+		if report != nil {
+			_ = report.Encode(c.Response().BodyWriter())
+		} else {
+			return c.Status(500).SendString(err.Error())
+		}
 		return nil
 	}
 

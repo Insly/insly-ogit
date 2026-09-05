@@ -23,5 +23,5 @@ func GetTransportServer(repoPath string, str storage.GitRepositoryStorage) (tran
 	srv := server.NewServer(loader)
 	ep := &transport.Endpoint{Path: "/" + filepath.Base(normalizedPath)}
 
-	return srv, ep, nil
+	return &safeTransport{Transport: srv, repo: str, path: normalizedPath}, ep, nil
 }

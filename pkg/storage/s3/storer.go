@@ -23,6 +23,7 @@ type S3Storer struct {
 	bucket   string
 	repoPath string
 	logger   zerolog.Logger
+	ctx      context.Context
 }
 
 // NewS3Storer creates a new S3-based storer for a specific repository
@@ -65,27 +66,29 @@ func (s *S3Storer) SetEncodedObject(obj plumbing.EncodedObject) (plumbing.Hash, 
 		return plumbing.ZeroHash, err
 	}
 
-	// Calculate hash if not already set
-	hash := obj.Hash()
-	if hash == plumbing.ZeroHash {
-		obj.SetSize(int64(len(content)))
-		hasher := plumbing.NewHasher(obj.Type(), int64(len(content)))
-		hasher.Write(content)
-		hash = hasher.Sum()
+	hasher := plumbing.NewHasher(obj.Type(), int64(len(content)))
+	_, _ = hasher.Write(content)
+	hash := hasher.Sum()
+	if obj.Size() != int64(len(content)) || obj.Hash() != hash {
+		return plumbing.ZeroHash, fmt.Errorf("encoded object hash or size mismatch")
 	}
 
 	// Store in S3
 	objectKey := s.getObjectKey(fmt.Sprintf("objects/%s/%s", hash.String()[:2], hash.String()[2:]))
 
-	_, err = s.client.PutObject(context.TODO(), &awss3.PutObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(objectKey),
-		Body:   bytes.NewReader(content),
+	_, err = s.client.PutObject(s.context(), &awss3.PutObjectInput{
+		Bucket:      aws.String(s.bucket),
+		Key:         aws.String(objectKey),
+		IfNoneMatch: aws.String("*"),
+		Body:        bytes.NewReader(content),
 		Metadata: map[string]string{
 			"git-type": obj.Type().String(),
 		},
 	})
 
+	if statusCode(err) == 412 {
+		_, err = s.EncodedObject(obj.Type(), hash)
+	}
 	return hash, err
 }
 
@@ -93,12 +96,15 @@ func (s *S3Storer) SetEncodedObject(obj plumbing.EncodedObject) (plumbing.Hash, 
 func (s *S3Storer) EncodedObject(t plumbing.ObjectType, hash plumbing.Hash) (plumbing.EncodedObject, error) {
 	objectKey := s.getObjectKey(fmt.Sprintf("objects/%s/%s", hash.String()[:2], hash.String()[2:]))
 
-	result, err := s.client.GetObject(context.TODO(), &awss3.GetObjectInput{
+	result, err := s.client.GetObject(s.context(), &awss3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(objectKey),
 	})
 	if err != nil {
-		return nil, plumbing.ErrObjectNotFound
+		if statusCode(err) == 404 {
+			return nil, plumbing.ErrObjectNotFound
+		}
+		return nil, err
 	}
 	defer result.Body.Close()
 
@@ -109,27 +115,21 @@ func (s *S3Storer) EncodedObject(t plumbing.ObjectType, hash plumbing.Hash) (plu
 
 	obj := &plumbing.MemoryObject{}
 
-	// Get the object type from metadata if available
-	objectType := t
-	if result.Metadata != nil {
-		if gitType, exists := result.Metadata["git-type"]; exists {
-			switch gitType {
-			case "commit":
-				objectType = plumbing.CommitObject
-			case "tree":
-				objectType = plumbing.TreeObject
-			case "blob":
-				objectType = plumbing.BlobObject
-			case "tag":
-				objectType = plumbing.TagObject
-			}
-		}
+	objectType, err := plumbing.ParseObjectType(result.Metadata["git-type"])
+	if err != nil {
+		return nil, fmt.Errorf("missing or invalid git-type for %s", hash)
+	}
+	if t != plumbing.AnyObject && t != objectType {
+		return nil, plumbing.ErrInvalidType
 	}
 
 	obj.SetType(objectType)
 	obj.SetSize(int64(len(content)))
 	obj.Write(content)
 
+	if obj.Hash() != hash {
+		return nil, fmt.Errorf("object hash mismatch: %s", hash)
+	}
 	return obj, nil
 }
 
@@ -145,7 +145,7 @@ func (s *S3Storer) IterEncodedObjects(t plumbing.ObjectType) (storer.EncodedObje
 	})
 
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(s.context())
 		if err != nil {
 			return nil, err
 		}
@@ -178,7 +178,7 @@ func (s *S3Storer) IterEncodedObjects(t plumbing.ObjectType) (storer.EncodedObje
 func (s *S3Storer) HasEncodedObject(hash plumbing.Hash) error {
 	objectKey := s.getObjectKey(fmt.Sprintf("objects/%s/%s", hash.String()[:2], hash.String()[2:]))
 
-	_, err := s.client.HeadObject(context.TODO(), &awss3.HeadObjectInput{
+	_, err := s.client.HeadObject(s.context(), &awss3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(objectKey),
 	})
@@ -193,7 +193,7 @@ func (s *S3Storer) HasEncodedObject(hash plumbing.Hash) error {
 func (s *S3Storer) EncodedObjectSize(hash plumbing.Hash) (int64, error) {
 	objectKey := s.getObjectKey(fmt.Sprintf("objects/%s/%s", hash.String()[:2], hash.String()[2:]))
 
-	result, err := s.client.HeadObject(context.TODO(), &awss3.HeadObjectInput{
+	result, err := s.client.HeadObject(s.context(), &awss3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(objectKey),
 	})
@@ -208,7 +208,7 @@ func (s *S3Storer) EncodedObjectSize(hash plumbing.Hash) (int64, error) {
 func (s *S3Storer) DeleteEncodedObject(hash plumbing.Hash) error {
 	objectKey := s.getObjectKey(fmt.Sprintf("objects/%s/%s", hash.String()[:2], hash.String()[2:]))
 
-	_, err := s.client.DeleteObject(context.TODO(), &awss3.DeleteObjectInput{
+	_, err := s.client.DeleteObject(s.context(), &awss3.DeleteObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(objectKey),
 	})
@@ -219,95 +219,6 @@ func (s *S3Storer) DeleteEncodedObject(hash plumbing.Hash) error {
 // Reference methods
 
 // SetReference stores a reference
-func (s *S3Storer) SetReference(ref *plumbing.Reference) error {
-	var objectKey string
-
-	if ref.Name().IsRemote() {
-		objectKey = s.getObjectKey(fmt.Sprintf("refs/remotes/%s", ref.Name().Short()))
-	} else if ref.Name().IsBranch() {
-		objectKey = s.getObjectKey(fmt.Sprintf("refs/heads/%s", ref.Name().Short()))
-	} else if ref.Name().IsTag() {
-		objectKey = s.getObjectKey(fmt.Sprintf("refs/tags/%s", ref.Name().Short()))
-	} else {
-		objectKey = s.getObjectKey(string(ref.Name()))
-	}
-
-	var content string
-	if ref.Type() == plumbing.HashReference {
-		content = ref.Hash().String()
-	} else {
-		content = fmt.Sprintf("ref: %s", ref.Target())
-	}
-
-	_, err := s.client.PutObject(context.TODO(), &awss3.PutObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(objectKey),
-		Body:   strings.NewReader(content),
-	})
-
-	return err
-}
-
-// Reference returns the reference for the given name
-func (s *S3Storer) Reference(name plumbing.ReferenceName) (*plumbing.Reference, error) {
-	var objectKey string
-
-	if name.IsRemote() {
-		objectKey = s.getObjectKey(fmt.Sprintf("refs/remotes/%s", name.Short()))
-	} else if name.IsBranch() {
-		objectKey = s.getObjectKey(fmt.Sprintf("refs/heads/%s", name.Short()))
-	} else if name.IsTag() {
-		objectKey = s.getObjectKey(fmt.Sprintf("refs/tags/%s", name.Short()))
-	} else {
-		// Normalize reference name by removing leading slash if present
-		refName := string(name)
-		if strings.HasPrefix(refName, "/") {
-			refName = refName[1:]
-		}
-		objectKey = s.getObjectKey(refName)
-	}
-
-	s.logger.Debug().
-		Str("name", string(name)).
-		Str("objectKey", objectKey).
-		Msg("Getting reference from S3")
-
-	result, err := s.client.GetObject(context.TODO(), &awss3.GetObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(objectKey),
-	})
-	if err != nil {
-		s.logger.Debug().
-			Err(err).
-			Str("name", string(name)).
-			Str("objectKey", objectKey).
-			Msg("Reference not found in S3")
-		return nil, plumbing.ErrReferenceNotFound
-	}
-	defer result.Body.Close()
-
-	content, err := io.ReadAll(result.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	contentStr := strings.TrimSpace(string(content))
-
-	s.logger.Debug().
-		Str("name", string(name)).
-		Str("content", contentStr).
-		Msg("Reference content from S3")
-
-	if strings.HasPrefix(contentStr, "ref: ") {
-		target := plumbing.ReferenceName(strings.TrimPrefix(contentStr, "ref: "))
-		return plumbing.NewSymbolicReference(name, target), nil
-	}
-
-	hash := plumbing.NewHash(contentStr)
-	return plumbing.NewHashReference(name, hash), nil
-}
-
-// IterReferences returns an iterator for all references
 func (s *S3Storer) IterReferences() (storer.ReferenceIter, error) {
 	refsPrefix := s.getObjectKey("refs/")
 
@@ -326,7 +237,7 @@ func (s *S3Storer) IterReferences() (storer.ReferenceIter, error) {
 	})
 
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(s.context())
 		if err != nil {
 			return nil, err
 		}
@@ -362,28 +273,6 @@ func (s *S3Storer) IterReferences() (storer.ReferenceIter, error) {
 }
 
 // RemoveReference removes a reference
-func (s *S3Storer) RemoveReference(name plumbing.ReferenceName) error {
-	var objectKey string
-
-	if name.IsRemote() {
-		objectKey = s.getObjectKey(fmt.Sprintf("refs/remotes/%s", name.Short()))
-	} else if name.IsBranch() {
-		objectKey = s.getObjectKey(fmt.Sprintf("refs/heads/%s", name.Short()))
-	} else if name.IsTag() {
-		objectKey = s.getObjectKey(fmt.Sprintf("refs/tags/%s", name.Short()))
-	} else {
-		objectKey = s.getObjectKey(string(name))
-	}
-
-	_, err := s.client.DeleteObject(context.TODO(), &awss3.DeleteObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(objectKey),
-	})
-
-	return err
-}
-
-// CountLooseRefs returns the number of loose references
 func (s *S3Storer) CountLooseRefs() (int, error) {
 	iter, err := s.IterReferences()
 	if err != nil {
@@ -406,7 +295,7 @@ func (s *S3Storer) CountLooseRefs() (int, error) {
 func (s *S3Storer) Config() (*config.Config, error) {
 	objectKey := s.getObjectKey("config")
 
-	result, err := s.client.GetObject(context.TODO(), &awss3.GetObjectInput{
+	result, err := s.client.GetObject(s.context(), &awss3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(objectKey),
 	})
@@ -435,7 +324,7 @@ func (s *S3Storer) SetConfig(cfg *config.Config) error {
 		return err
 	}
 
-	_, err = s.client.PutObject(context.TODO(), &awss3.PutObjectInput{
+	_, err = s.client.PutObject(s.context(), &awss3.PutObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(objectKey),
 		Body:   bytes.NewReader(content),
@@ -464,7 +353,7 @@ func (s *S3Storer) SetIndex(idx *index.Index) error {
 func (s *S3Storer) Shallow() ([]plumbing.Hash, error) {
 	objectKey := s.getObjectKey("shallow")
 
-	result, err := s.client.GetObject(context.TODO(), &awss3.GetObjectInput{
+	result, err := s.client.GetObject(s.context(), &awss3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(objectKey),
 	})
@@ -496,7 +385,7 @@ func (s *S3Storer) SetShallow(hashes []plumbing.Hash) error {
 
 	if len(hashes) == 0 {
 		// Remove shallow file if no hashes
-		_, err := s.client.DeleteObject(context.TODO(), &awss3.DeleteObjectInput{
+		_, err := s.client.DeleteObject(s.context(), &awss3.DeleteObjectInput{
 			Bucket: aws.String(s.bucket),
 			Key:    aws.String(objectKey),
 		})
@@ -509,7 +398,7 @@ func (s *S3Storer) SetShallow(hashes []plumbing.Hash) error {
 		content.WriteString("\n")
 	}
 
-	_, err := s.client.PutObject(context.TODO(), &awss3.PutObjectInput{
+	_, err := s.client.PutObject(s.context(), &awss3.PutObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(objectKey),
 		Body:   strings.NewReader(content.String()),
@@ -529,32 +418,6 @@ func (s *S3Storer) AddAlternate(remote string) error {
 }
 
 // CheckAndSetReference atomically checks and sets a reference
-func (s *S3Storer) CheckAndSetReference(new, old *plumbing.Reference) error {
-	if old != nil {
-		// Check if the old reference matches the current state
-		current, err := s.Reference(old.Name())
-		if err != nil {
-			return err
-		}
-
-		if old.Type() == plumbing.HashReference && current.Type() == plumbing.HashReference {
-			if old.Hash() != current.Hash() {
-				return fmt.Errorf("reference has changed")
-			}
-		} else if old.Type() == plumbing.SymbolicReference && current.Type() == plumbing.SymbolicReference {
-			if old.Target() != current.Target() {
-				return fmt.Errorf("reference has changed")
-			}
-		} else {
-			return fmt.Errorf("reference type mismatch")
-		}
-	}
-
-	// Set the new reference
-	return s.SetReference(new)
-}
-
-// PackRefs packs references into a packed-refs file (not implemented for S3)
 func (s *S3Storer) PackRefs() error {
 	// S3 storage doesn't need packed refs as each ref is a separate object
 	return nil

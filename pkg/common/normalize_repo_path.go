@@ -19,7 +19,7 @@ import "strings"
 //	NormalizeRepoPath("  myrepo  ") → "myrepo.git"
 func NormalizeRepoPath(repoPath string) string {
 	// Remove leading and trailing whitespace
-	repoPath = strings.TrimSpace(repoPath)
+	repoPath = strings.Trim(strings.TrimSpace(repoPath), "/")
 
 	// Ensure the repository path ends with .git suffix
 	if !strings.HasSuffix(repoPath, ".git") {
