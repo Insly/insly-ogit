@@ -1,22 +1,27 @@
 package server
 
 import (
+	"context"
+	"github.com/labbs/git-server-s3/pkg/replication"
 	"strconv"
+	"time"
 
 	"github.com/labbs/git-server-s3/internal/api/router"
 	"github.com/labbs/git-server-s3/pkg/logger/zerolog"
 	"github.com/labbs/git-server-s3/pkg/storage"
+	"github.com/labbs/git-server-s3/pkg/telemetry"
 
 	"github.com/goccy/go-json"
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/compress"
-	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/recover"
-	"github.com/gofiber/fiber/v2/middleware/requestid"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/compress"
+	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/recover"
+	"github.com/gofiber/fiber/v3/middleware/requestid"
 	z "github.com/rs/zerolog"
 )
 
 type HttpConfig struct {
+	Mirror   *replication.Mirror
 	Port     int
 	HttpLogs bool
 	Fiber    *fiber.App
@@ -26,12 +31,12 @@ type HttpConfig struct {
 
 func (c *HttpConfig) Configure() {
 	fiberConfig := fiber.Config{
-		JSONEncoder:           json.Marshal,
-		JSONDecoder:           json.Unmarshal,
-		DisableStartupMessage: true,
+		JSONEncoder: json.Marshal,
+		JSONDecoder: json.Unmarshal,
 	}
 
 	r := fiber.New(fiberConfig)
+	r.Use(telemetry.HTTP())
 
 	if c.HttpLogs {
 		r.Use(zerolog.HTTPLogger(c.Logger))
@@ -42,13 +47,23 @@ func (c *HttpConfig) Configure() {
 	r.Use(compress.New())
 	r.Use(requestid.New())
 
-	r.Get("/health", func(ctx *fiber.Ctx) error {
+	r.Get("/health", func(ctx fiber.Ctx) error {
 		return ctx.JSON(fiber.Map{
 			"status":  "ok",
 			"service": "git-server-s3",
 		})
 	})
 
+	r.Get("/ready", func(cctx fiber.Ctx) error {
+		if c.Mirror != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := c.Mirror.Ready(ctx); err != nil {
+				return cctx.SendStatus(503)
+			}
+		}
+		return cctx.SendStatus(200)
+	})
 	c.Fiber = r
 }
 
@@ -59,13 +74,14 @@ func (c *HttpConfig) NewServer() error {
 		Logger:  c.Logger,
 		Fiber:   c.Fiber,
 		Storage: c.Storage,
+		Mirror:  c.Mirror,
 	}
 
 	apirc.Configure()
 
 	c.Logger.Info().Msgf("Starting server on port %d", c.Port)
 
-	err := c.Fiber.Listen(":" + strconv.Itoa(c.Port))
+	err := c.Fiber.Listen(":"+strconv.Itoa(c.Port), fiber.ListenConfig{DisableStartupMessage: true})
 	if err != nil {
 		c.Logger.Error().Err(err).Msg("Failed to start server")
 		return err

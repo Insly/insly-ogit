@@ -7,7 +7,7 @@ import (
 	"runtime/pprof"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog"
 )
 
@@ -21,7 +21,7 @@ type DebugController struct {
 // and goroutine counts.
 //
 // Response: JSON object with memory statistics
-func (dc *DebugController) MemStats(ctx *fiber.Ctx) error {
+func (dc *DebugController) MemStats(ctx fiber.Ctx) error {
 	logger := dc.Logger.With().Str("event", "MemStats").Logger()
 
 	var m runtime.MemStats
@@ -52,7 +52,7 @@ func (dc *DebugController) MemStats(ctx *fiber.Ctx) error {
 // Forces garbage collection and returns memory usage before and after GC.
 //
 // Response: JSON object with GC results
-func (dc *DebugController) ForceGC(ctx *fiber.Ctx) error {
+func (dc *DebugController) ForceGC(ctx fiber.Ctx) error {
 	logger := dc.Logger.With().Str("event", "ForceGC").Logger()
 
 	var before, after runtime.MemStats
@@ -86,7 +86,7 @@ func (dc *DebugController) ForceGC(ctx *fiber.Ctx) error {
 // Returns a stack trace of all active goroutines for debugging leaks.
 //
 // Response: Plain text stack traces of all goroutines
-func (dc *DebugController) Goroutines(ctx *fiber.Ctx) error {
+func (dc *DebugController) Goroutines(ctx fiber.Ctx) error {
 	logger := dc.Logger.With().Str("event", "Goroutines").Logger()
 
 	goroutineCount := runtime.NumGoroutine()
@@ -94,7 +94,7 @@ func (dc *DebugController) Goroutines(ctx *fiber.Ctx) error {
 
 	// Get goroutine stack traces
 	buf := bytes.NewBuffer(make([]byte, 0, 1024*1024)) // 1MB buffer
-	pprof.Lookup("goroutine").WriteTo(buf, 1)
+	_ = pprof.Lookup("goroutine").WriteTo(buf, 1)
 
 	ctx.Set("Content-Type", "text/plain")
 	return ctx.SendString(buf.String())
@@ -104,7 +104,7 @@ func (dc *DebugController) Goroutines(ctx *fiber.Ctx) error {
 // Returns summary statistics about goroutines without full stack traces.
 //
 // Response: JSON object with goroutine statistics
-func (dc *DebugController) GoroutineStats(ctx *fiber.Ctx) error {
+func (dc *DebugController) GoroutineStats(ctx fiber.Ctx) error {
 	logger := dc.Logger.With().Str("event", "GoroutineStats").Logger()
 
 	goroutineCount := runtime.NumGoroutine()

@@ -78,7 +78,7 @@ func (ls *LocalStorage) CreateRepository(repoPath string) error {
 
 	// Create a temporary normal repository first to add initial commit
 	tempPath := fullPath + "_temp"
-	defer os.RemoveAll(tempPath) // Clean up temp directory
+	defer func() { _ = os.RemoveAll(tempPath) }() // Clean up temp directory
 
 	// Initialize normal (non-bare) repository
 	repo, err := git.PlainInit(tempPath, false)
@@ -102,10 +102,10 @@ func (ls *LocalStorage) CreateRepository(repoPath string) error {
 	}
 
 	if _, err := readmeFile.Write([]byte(readmeContent)); err != nil {
-		readmeFile.Close()
+		_ = readmeFile.Close()
 		return err
 	}
-	readmeFile.Close()
+	_ = readmeFile.Close()
 
 	// Add README.md to staging
 	if _, err := worktree.Add("README.md"); err != nil {

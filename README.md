@@ -1,167 +1,77 @@
 # oGit
 
-A lightweight Git server supporting both HTTP and SSH protocols with multiple storage backends.
+ogit serves Git repositories over HTTP using local files or S3-compatible object
+storage. It supports authenticated readers and writers, safe single-branch
+publication, and regional S3 replicas that serve reads from their own buckets.
 
-## Features
+## What it supports
 
-### Current Features ✅
+- Git Smart HTTP clone, fetch and push, including shallow clones and later fetches.
+- Local filesystem and S3-compatible storage backends.
+- Reader, writer and administrator tokens, plus a read-only serving mode.
+- Conditional S3 reference writes and forward-only regional replication.
+- Idempotent S3 bootstrap that preserves existing repository contents.
+- Health/readiness endpoints, structured logs, OpenTelemetry traces and metrics.
+- A Debian container image tested with native Git and Floci before release.
 
-- **HTTP Git Server**: Full Git Smart HTTP protocol support
-  - Clone, push, pull operations via HTTP/HTTPS
-  - REST API for repository management
-  - Graceful shutdown handling
+Pushes update one branch at a time. Branch deletion, tags, non-fast-forward
+updates and atomic multi-reference pushes are rejected. SSH remains a demo
+transport; it must be disabled when HTTP authentication or read-only mode is
+configured.
 
-- **SSH Git Server**: Custom SSH implementation for Git operations
-  - Clone, push, pull operations via SSH
-  - Public key and password authentication
-  - Git protocol over SSH (git-upload-pack, git-receive-pack)
+## Try it locally
 
-- **Storage Backends**:
-  - **Local**: File system storage for repositories
-  - **S3**: Amazon S3 compatible storage (tested and working)
+Build with Go 1.27.1, then start a local-storage server:
 
-- **Configuration**:
-  - YAML configuration files
-  - Command-line flags
-  - Environment variable support
-
-- **Authentication**:
-  - Demo mode (password: "demo", accepts any SSH key)
-  - Extensible authentication framework
-
-- **Logging**: Structured logging with zerolog
-
-### Architecture
-
-- **Parallel Servers**: HTTP and SSH servers run concurrently
-- **Graceful Shutdown**: CTRL+C handling with 30-second timeout
-- **Storage Abstraction**: Pluggable storage backend system
-- **Transport Abstraction**: Unified Git transport layer
-
-## Quick Start
-
-### Configuration
-
-Copy the example configuration:
-```bash
-cp config-example.yaml config.yaml
-```
-
-Edit `config.yaml` to configure your storage backend and server settings.
-
-### Running the Server
-
-```bash
-# Build the application
+```sh
 make build
-
-# Run with default configuration
-./main
-
-# Or run with custom config
-./main --config ./config.yaml
+STORAGE_TYPE=local STORAGE_LOCAL_PATH=./repositories \
+  ./tmp/git-server-s3 server --config /dev/null
 ```
 
-### Git Operations
+In another terminal, create and clone a repository:
 
-**HTTP Access:**
-```bash
-# Clone via HTTP
-git clone http://localhost:8080/your-repo.git
-
-# Push to HTTP
-git push origin main
+```sh
+curl --fail -H 'Content-Type: application/json' \
+  -d '{"name":"example"}' http://localhost:8080/api/repo
+git clone --depth=1 http://localhost:8080/example.git
 ```
 
-**SSH Access:**
-**Not stable**
-```bash
-# Clone via SSH (demo password: "demo")
-git clone ssh://demo@localhost:2022/your-repo.git
+This example uses anonymous local mode. Configure tokens and TLS before exposing
+the service to other users. See the deployment guide for S3 credentials and
+bootstrap, or use `./tmp/git-server-s3 server --help` for available flags.
 
-# Push via SSH
-git push origin main
-```
+## Configuration and operations
 
-## Configuration Options
+[Deploying and operating ogit](docs/deployment.md) covers server configuration,
+access controls, storage guarantees, repository bootstrap, regional replication,
+readiness and release verification.
 
-### Server Configuration
-- `server.http.enabled`: Enable/disable HTTP server
-- `server.http.port`: HTTP server port (default: 8080)
-- `server.ssh.enabled`: Enable/disable SSH server  
-- `server.ssh.port`: SSH server port (default: 2022)
-- `server.ssh.hostkey`: Path to SSH host key file
-
-### Storage Configuration
-- `storage.type`: Storage backend ("local" or "s3")
-- `storage.local.path`: Local storage directory
-- `storage.s3.*`: S3 configuration options
-
-## Known Issues 🐛
-
-### SSH Protocol
-- **Client Warning**: Git clients may show "remote end hung up unexpectedly" message
-  - **Impact**: Cosmetic only - all operations complete successfully
-  - **Status**: Under investigation - server-side operations work perfectly
-  - **Workaround**: Message can be safely ignored
-
-### Performance
-- **S3 Storage**: Slower than local storage due to network latency
-  - **Expected**: Normal behavior for remote storage
-  - **Optimization**: Consider using S3 transfer acceleration
-
-## Future Features 🚀
-
-### Authentication & Security
-- [ ] Multi-user authentication system
-- [ ] Role-based access control (RBAC)
-- [ ] JWT token authentication
-- [ ] LDAP/Active Directory integration
-- [ ] Rate limiting and DDoS protection
-
-### Storage Enhancements  
-- [ ] Azure Blob Storage backend
-- [ ] Google Cloud Storage backend
-- [ ] Redis caching layer
-- [ ] Repository compression and deduplication
-
-### Git Features
-- [ ] Web UI for repository browsing
-- [ ] Webhook support for CI/CD integration
-- [ ] Branch protection rules
-- [ ] Repository mirroring
-- [ ] Git LFS (Large File Storage) support
-
-### Operations & Monitoring
-- [ ] Metrics and monitoring (Prometheus)
-- [ ] Health check endpoints
-- [ ] Docker containerization
-- [ ] Kubernetes deployment manifests
-- [ ] Backup and restore tools
-
-### Protocol Improvements
-- [ ] Git protocol v2 support
-- [ ] HTTP/2 support
-- [ ] TLS certificate management
-- [ ] SSH key management interface
+[OpenTelemetry](docs/telemetry.md) explains exporter setup, the metrics to monitor,
+trace/log correlation, and the limits of replica freshness measurements.
 
 ## Development
 
-### Building
-```bash
-make build
+```sh
+make build          # Build tmp/git-server-s3
+make test           # Race-enabled tests, including native Git process tests
+make test-coverage  # Write coverage.out and coverage.html
+make lint           # golangci-lint v2.13.2, including integration-tagged code
 ```
 
-### Testing
-```bash
-make test
+Install the pinned linter from the
+[official releases](https://github.com/golangci/golangci-lint/releases/tag/v2.13.2).
+To run integration tests against Floci:
+
+```sh
+docker run --rm -p 4566:4566 public.ecr.aws/floci/floci:2.0.1
+# In another terminal:
+FLOCI_ENDPOINT=http://127.0.0.1:4566 make test-integration
 ```
 
-### Running Tests with Coverage
-```bash
-make test-coverage
-```
+The shared CI workflow checks modules, formatting, lint, tests and the built
+container. Release publication uses the image that passed those checks.
 
 ## License
 
-See [LICENSE](LICENSE) file for details.
+See [LICENSE](LICENSE).

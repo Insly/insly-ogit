@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/server"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/labbs/git-server-s3/pkg/storage"
 )
 
@@ -23,5 +23,5 @@ func GetTransportServer(repoPath string, str storage.GitRepositoryStorage) (tran
 	srv := server.NewServer(loader)
 	ep := &transport.Endpoint{Path: "/" + filepath.Base(normalizedPath)}
 
-	return srv, ep, nil
+	return &safeTransport{Transport: srv, repo: str, path: normalizedPath}, ep, nil
 }

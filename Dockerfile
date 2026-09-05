@@ -1,11 +1,17 @@
-FROM golang:1.23 as builder
+FROM public.ecr.aws/docker/library/golang:1.27.1 AS builder
 
-WORKDIR /app
-COPY bin/app /app/bin/app
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG VERSION=development
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-X main.version=${VERSION}" -o /out/app ./cmd
 
-FROM alpine:latest as release
-RUN apk update && apk add ca-certificates && rm -rf /var/cache/apk/*
-COPY --from=builder /app/bin/app .
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
+FROM public.ecr.aws/docker/library/debian:trixie-slim AS release
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /out/app /app
+USER 65532:65532
+ENTRYPOINT ["/app"]
+CMD ["server", "-c", "/config/config.yaml"]

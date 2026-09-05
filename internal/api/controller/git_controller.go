@@ -3,14 +3,16 @@ package controller
 
 import (
 	"bytes"
-	"context"
+	"github.com/go-git/go-git/v5/plumbing/format/pktline"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/labbs/git-server-s3/pkg/common"
+	git "github.com/labbs/git-server-s3/pkg/git"
 	"github.com/labbs/git-server-s3/pkg/storage"
 	"github.com/rs/zerolog"
 
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
+	"github.com/go-git/go-git/v5/plumbing/protocol/packp/capability"
 )
 
 // GitController handles Git Smart HTTP protocol requests.
@@ -29,7 +31,7 @@ type GitController struct {
 //   - service: either "git-upload-pack" (for clone/fetch) or "git-receive-pack" (for push)
 //
 // Response: Git protocol formatted reference advertisement
-func (gc *GitController) InfoRefs(ctx *fiber.Ctx) error {
+func (gc *GitController) InfoRefs(ctx fiber.Ctx) error {
 	logger := gc.Logger.With().Str("event", "InfoRefs").Logger()
 
 	logger.Debug().Str("repo", ctx.Params("repo")).Send()
@@ -47,7 +49,7 @@ func (gc *GitController) InfoRefs(ctx *fiber.Ctx) error {
 	}
 
 	// Get the go-git transport server for this repository
-	srv, ep, err := common.GetTransportServer(repoPath, gc.Storage)
+	srv, ep, err := common.GetTransportServer(repoPath, storage.WithContext(ctx.Context(), gc.Storage))
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to get transport server")
 		return ctx.Status(fiber.StatusInternalServerError).SendString("failed to get transport server")
@@ -61,10 +63,11 @@ func (gc *GitController) InfoRefs(ctx *fiber.Ctx) error {
 		if err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
-		adv, err := sess.AdvertisedReferences()
+		adv, err := sess.AdvertisedReferencesContext(ctx.Context())
 		if err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
+		_ = adv.Capabilities.Set(capability.Shallow)
 		if err := common.WriteServiceAdvertisement(ctx.Response().BodyWriter(), service); err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
@@ -77,7 +80,7 @@ func (gc *GitController) InfoRefs(ctx *fiber.Ctx) error {
 		if err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
-		adv, err := sess.AdvertisedReferences()
+		adv, err := sess.AdvertisedReferencesContext(ctx.Context())
 		if err != nil {
 			return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
@@ -97,7 +100,7 @@ func (gc *GitController) InfoRefs(ctx *fiber.Ctx) error {
 //
 // Request body: Git pack protocol request (binary)
 // Response: Git pack protocol response with requested objects
-func (gc *GitController) HandleUploadPack(c *fiber.Ctx) error {
+func (gc *GitController) HandleUploadPack(c fiber.Ctx) error {
 	logger := gc.Logger.With().Str("event", "HandleUploadPack").Logger()
 
 	// Extract repository path from URL
@@ -110,7 +113,7 @@ func (gc *GitController) HandleUploadPack(c *fiber.Ctx) error {
 	logger.Debug().Str("repoPath", repoPath).Msg("Handling upload-pack request")
 
 	// Get the go-git transport server for this repository
-	srv, ep, err := common.GetTransportServer(repoPath, gc.Storage)
+	srv, ep, err := common.GetTransportServer(repoPath, storage.WithContext(c.Context(), gc.Storage))
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to get transport server")
 		return err
@@ -130,13 +133,41 @@ func (gc *GitController) HandleUploadPack(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
 	}
 
+	// Intercept shallow clone / fetch requests (depth > 0) and handle them
+	// with a custom implementation, since go-git's server does not support shallow.
+	if _, isDepth := req.Depth.(packp.DepthCommits); isDepth && (!req.Depth.IsZero() || len(req.Shallows) > 0) {
+		st, err := storage.WithContext(c.Context(), gc.Storage).GetStorer(repoPath)
+		if err != nil {
+			logger.Error().Err(err).Msg("Failed to get storer for shallow request")
+			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		}
+		c.Set("Content-Type", "application/x-git-upload-pack-result")
+		logger.Debug().Int("depth", int(req.Depth.(packp.DepthCommits))).Msg("Handling shallow upload-pack")
+		done := false
+		scanner := pktline.NewScanner(bytes.NewReader(c.Body()))
+		for scanner.Scan() {
+			if bytes.Equal(bytes.TrimSpace(scanner.Bytes()), []byte("done")) {
+				done = true
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return c.Status(400).SendString(err.Error())
+		}
+		if err := git.ServeShallowUploadPack(c.Response().BodyWriter(), st, req, done); err != nil {
+			logger.Error().Err(err).Msg("Failed to serve shallow upload-pack")
+			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		}
+		logger.Debug().Msg("Shallow upload-pack completed")
+		return nil
+	}
+
 	logger.Debug().Msg("Calling UploadPack")
-	resp, err := sess.UploadPack(context.Background(), req)
+	resp, err := sess.UploadPack(c.Context(), req)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to execute upload pack")
 		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 	}
-	defer resp.Close()
+	defer func() { _ = resp.Close() }()
 
 	c.Set("Content-Type", "application/x-git-upload-pack-result")
 	logger.Debug().Msg("Encoding response")
@@ -155,7 +186,7 @@ func (gc *GitController) HandleUploadPack(c *fiber.Ctx) error {
 //
 // Request body: Git pack protocol request with reference updates and pack data (binary)
 // Response: Git pack protocol status report indicating success/failure of each reference update
-func (gc *GitController) HandleReceivePack(c *fiber.Ctx) error {
+func (gc *GitController) HandleReceivePack(c fiber.Ctx) error {
 	logger := gc.Logger.With().Str("event", "HandleReceivePack").Logger()
 
 	// Extract repository path from URL
@@ -168,7 +199,7 @@ func (gc *GitController) HandleReceivePack(c *fiber.Ctx) error {
 	logger.Debug().Str("repoPath", repoPath).Msg("Handling receive-pack request")
 
 	// Get the go-git transport server for this repository
-	srv, ep, err := common.GetTransportServer(repoPath, gc.Storage)
+	srv, ep, err := common.GetTransportServer(repoPath, storage.WithContext(c.Context(), gc.Storage))
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to get transport server")
 		return err
@@ -189,12 +220,16 @@ func (gc *GitController) HandleReceivePack(c *fiber.Ctx) error {
 	}
 
 	// Process the receive pack request and generate a status report
-	report, err := sess.ReceivePack(context.Background(), req)
+	report, err := sess.ReceivePack(c.Context(), req)
 	c.Set("Content-Type", "application/x-git-receive-pack-result")
 	if err != nil {
 		logger.Error().Err(err).Msg("Receive pack failed")
 		// Even if there was an error, we still need to send the report
-		_ = report.Encode(c.Response().BodyWriter())
+		if report != nil {
+			_ = report.Encode(c.Response().BodyWriter())
+		} else {
+			return c.Status(500).SendString(err.Error())
+		}
 		return nil
 	}
 

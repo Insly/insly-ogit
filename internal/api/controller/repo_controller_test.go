@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing/storer"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -55,9 +56,7 @@ func (m *MockGitRepositoryStorage) Configure() error {
 }
 
 func setupTestApp() (*fiber.App, *MockGitRepositoryStorage) {
-	app := fiber.New(fiber.Config{
-		DisableStartupMessage: true,
-	})
+	app := fiber.New()
 
 	mockStorage := &MockGitRepositoryStorage{}
 	logger := zerolog.Nop() // Silent logger for tests
@@ -185,7 +184,9 @@ func TestListReposSuccess(t *testing.T) {
 
 	// Check response
 	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
-	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	assert.Equal(t, "application/json", mediaType)
 
 	body, _ := io.ReadAll(resp.Body)
 	var repos []string
@@ -305,7 +306,7 @@ func BenchmarkCreateRepo(b *testing.B) {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, _ := app.Test(req)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 }
 
@@ -323,6 +324,6 @@ func BenchmarkListRepos(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		req := httptest.NewRequest("GET", "/api/repos", nil)
 		resp, _ := app.Test(req)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 }

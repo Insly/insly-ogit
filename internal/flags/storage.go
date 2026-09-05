@@ -56,6 +56,10 @@ func StorageFlags() []cli.Flag {
 			),
 		},
 		&cli.StringFlag{
+			Name: "storage.s3.session-token", Destination: &config.Storage.S3.SessionToken,
+			Sources: cli.NewValueSourceChain(cli.EnvVar("STORAGE_S3_SESSION_TOKEN"), altsrcyaml.YAML("storage.s3.session-token", altsrc.NewStringPtrSourcer(&config.ConfigFile))),
+		},
+		&cli.StringFlag{
 			Name:        "storage.s3.region",
 			Aliases:     []string{"ssr"},
 			Destination: &config.Storage.S3.Region,

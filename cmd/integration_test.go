@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/labbs/git-server-s3/internal/api/router"
 	"github.com/labbs/git-server-s3/internal/config"
 	"github.com/labbs/git-server-s3/pkg/storage/local"
@@ -26,7 +26,7 @@ func TestLocalStorageIntegration(t *testing.T) {
 	// Create a temporary directory for tests
 	tempDir, err := os.MkdirTemp("", "git-server-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Test configuration with local storage
 	config.Storage.Type = "local"
@@ -41,9 +41,7 @@ func TestLocalStorageIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create the Fiber app for tests
-	app := fiber.New(fiber.Config{
-		DisableStartupMessage: true,
-	})
+	app := fiber.New()
 
 	// Configure routes
 	routerConfig := &router.Config{
@@ -57,9 +55,9 @@ func TestLocalStorageIntegration(t *testing.T) {
 	// Test 1: List repositories (empty at start)
 	t.Run("list_empty_repositories", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/repos", nil)
-		resp, err := app.Test(req, 5*1000) // 5 second timeout
+		resp, err := app.Test(req, fiber.TestConfig{Timeout: 5 * time.Second, FailOnTimeout: true}) // 5 second timeout
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -84,9 +82,9 @@ func TestLocalStorageIntegration(t *testing.T) {
 		req := httptest.NewRequest("POST", "/api/repo", bytes.NewReader(bodyBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := app.Test(req, 5*1000)
+		resp, err := app.Test(req, fiber.TestConfig{Timeout: 5 * time.Second, FailOnTimeout: true})
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -111,9 +109,9 @@ func TestLocalStorageIntegration(t *testing.T) {
 	// Test 4: List repositories (now with the new one)
 	t.Run("list_repositories_with_new_repo", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/repos", nil)
-		resp, err := app.Test(req, 5*1000)
+		resp, err := app.Test(req, fiber.TestConfig{Timeout: 5 * time.Second, FailOnTimeout: true})
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -133,9 +131,9 @@ func TestLocalStorageIntegration(t *testing.T) {
 		url := fmt.Sprintf("/%s.git/info/refs?service=git-upload-pack", testRepoName)
 		req := httptest.NewRequest("GET", url, nil)
 
-		resp, err := app.Test(req, 5*1000)
+		resp, err := app.Test(req, fiber.TestConfig{Timeout: 5 * time.Second, FailOnTimeout: true})
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.Equal(t, "application/x-git-upload-pack-advertisement", resp.Header.Get("Content-Type"))
@@ -158,9 +156,9 @@ func TestLocalStorageIntegration(t *testing.T) {
 		req := httptest.NewRequest("POST", "/api/repo", bytes.NewReader(bodyBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := app.Test(req, 5*1000)
+		resp, err := app.Test(req, fiber.TestConfig{Timeout: 5 * time.Second, FailOnTimeout: true})
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
 	})
@@ -168,9 +166,9 @@ func TestLocalStorageIntegration(t *testing.T) {
 	// Test 7: Verify that both repositories appear
 	t.Run("list_multiple_repositories", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/repos", nil)
-		resp, err := app.Test(req, 5*1000)
+		resp, err := app.Test(req, fiber.TestConfig{Timeout: 5 * time.Second, FailOnTimeout: true})
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -192,7 +190,7 @@ func TestErrorCases(t *testing.T) {
 	// Create a temporary directory for tests
 	tempDir, err := os.MkdirTemp("", "git-server-error-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Test configuration
 	config.Storage.Type = "local"
@@ -203,9 +201,7 @@ func TestErrorCases(t *testing.T) {
 	err = localStorage.Configure()
 	require.NoError(t, err)
 
-	app := fiber.New(fiber.Config{
-		DisableStartupMessage: true,
-	})
+	app := fiber.New()
 
 	routerConfig := &router.Config{
 		Fiber:   app,
@@ -220,9 +216,9 @@ func TestErrorCases(t *testing.T) {
 		req := httptest.NewRequest("POST", "/api/repo", bytes.NewReader([]byte("invalid json")))
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := app.Test(req, 5*1000)
+		resp, err := app.Test(req, fiber.TestConfig{Timeout: 5 * time.Second, FailOnTimeout: true})
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
@@ -238,18 +234,18 @@ func TestErrorCases(t *testing.T) {
 		req := httptest.NewRequest("POST", "/api/repo", bytes.NewReader(bodyBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := app.Test(req, 5*1000)
+		resp, err := app.Test(req, fiber.TestConfig{Timeout: 5 * time.Second, FailOnTimeout: true})
 		require.NoError(t, err)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
 		// Second creation (should fail)
 		req = httptest.NewRequest("POST", "/api/repo", bytes.NewReader(bodyBytes))
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err = app.Test(req, 5*1000)
+		resp, err = app.Test(req, fiber.TestConfig{Timeout: 5 * time.Second, FailOnTimeout: true})
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		// Should return an error because the repo already exists
 		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
@@ -259,9 +255,9 @@ func TestErrorCases(t *testing.T) {
 	t.Run("nonexistent_repository", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/nonexistent-repo.git/info/refs?service=git-upload-pack", nil)
 
-		resp, err := app.Test(req, 5*1000)
+		resp, err := app.Test(req, fiber.TestConfig{Timeout: 5 * time.Second, FailOnTimeout: true})
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	})
@@ -271,7 +267,7 @@ func TestErrorCases(t *testing.T) {
 func BenchmarkAPIEndpoints(b *testing.B) {
 	tempDir, err := os.MkdirTemp("", "git-server-benchmark-*")
 	require.NoError(b, err)
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	config.Storage.Type = "local"
 	config.Storage.Local.Path = tempDir
@@ -281,9 +277,7 @@ func BenchmarkAPIEndpoints(b *testing.B) {
 	err = localStorage.Configure()
 	require.NoError(b, err)
 
-	app := fiber.New(fiber.Config{
-		DisableStartupMessage: true,
-	})
+	app := fiber.New()
 
 	routerConfig := &router.Config{
 		Fiber:   app,
@@ -302,14 +296,14 @@ func BenchmarkAPIEndpoints(b *testing.B) {
 			req.Header.Set("Content-Type", "application/json")
 
 			resp, _ := app.Test(req)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			req := httptest.NewRequest("GET", "/api/repos", nil)
 			resp, _ := app.Test(req)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	})
 
@@ -323,7 +317,7 @@ func BenchmarkAPIEndpoints(b *testing.B) {
 			req.Header.Set("Content-Type", "application/json")
 
 			resp, _ := app.Test(req)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	})
 }

@@ -2,15 +2,16 @@ package s3
 
 import (
 	"context"
-	"os"
-
-	"github.com/labbs/git-server-s3/internal/config"
-
+	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsCfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go/metrics/smithyotelmetrics"
+	"github.com/aws/smithy-go/tracing/smithyoteltracing"
+	"github.com/labbs/git-server-s3/internal/config"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel"
 )
 
 type S3Config struct {
@@ -18,31 +19,39 @@ type S3Config struct {
 	Client *awss3.Client
 }
 
-func (c *S3Config) Configure() error {
-	// Set AWS environment variables to disable automatic checksums for S3-compatible services
-	os.Setenv("AWS_REQUEST_CHECKSUM_CALCULATION", "WHEN_REQUIRED")
-	os.Setenv("AWS_RESPONSE_CHECKSUM_VALIDATION", "WHEN_REQUIRED")
-
-	cfg, err := awsCfg.LoadDefaultConfig(context.TODO(),
-		awsCfg.WithRegion(config.Storage.S3.Region),
-		awsCfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
-			config.Storage.S3.AccessKey,
-			config.Storage.S3.SecretKey,
-			"",
-		)),
-	)
-	if err != nil {
-		c.Logger.Fatal().Err(err).Str("event", "s3.configure.client").Msg("Failed to configure S3 client")
+// NewClient retains the refreshable AWS default chain unless credentials are explicit.
+func NewClient(ctx context.Context, region, endpoint, accessKey, secretKey, sessionToken string) (*awss3.Client, error) {
+	if (accessKey == "") != (secretKey == "") || (sessionToken != "" && accessKey == "") {
+		return nil, fmt.Errorf("explicit S3 credentials require both access-key and secret-key")
 	}
-
-	// Configure client with custom endpoint and disable checksums for S3-compatible services
-	c.Client = awss3.NewFromConfig(cfg, func(o *awss3.Options) {
-		o.BaseEndpoint = aws.String(config.Storage.S3.Endpoint)
-		o.UsePathStyle = true // Important pour Outscale et autres services S3-compatibles
-		// Disable checksums for S3-compatible services that don't support them
-		o.DisableMultiRegionAccessPoints = true
-		// Disable request and response checksums
-		o.ClientLogMode = 0 // Reduce logging if needed
-	})
+	opts := []func(*awsCfg.LoadOptions) error{}
+	if region != "" {
+		opts = append(opts, awsCfg.WithRegion(region))
+	}
+	if accessKey != "" {
+		opts = append(opts, awsCfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, sessionToken)))
+	}
+	cfg, err := awsCfg.LoadDefaultConfig(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return awss3.NewFromConfig(cfg, func(o *awss3.Options) {
+		o.TracerProvider = smithyoteltracing.Adapt(otel.GetTracerProvider())
+		o.MeterProvider = smithyotelmetrics.Adapt(otel.GetMeterProvider())
+		if endpoint != "" {
+			o.BaseEndpoint = aws.String(endpoint)
+			o.UsePathStyle = true
+			o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+			o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
+		}
+	}), nil
+}
+func (c *S3Config) Configure() error {
+	s := config.Storage.S3
+	client, err := NewClient(context.Background(), s.Region, s.Endpoint, s.AccessKey, s.SecretKey, s.SessionToken)
+	if err != nil {
+		return err
+	}
+	c.Client = client
 	return nil
 }

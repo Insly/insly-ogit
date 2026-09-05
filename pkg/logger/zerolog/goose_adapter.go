@@ -18,7 +18,7 @@ func (z *ZerologGooseAdapter) Print(args ...interface{}) {
 
 // Printf implement the goose.Logger interface method
 func (z *ZerologGooseAdapter) Printf(format string, args ...interface{}) {
-	f := strings.Replace(format, "\n", "", -1)
+	f := strings.ReplaceAll(format, "\n", "")
 	z.Logger.Info().Msgf(f, args...)
 }
 
@@ -34,6 +34,6 @@ func (z *ZerologGooseAdapter) Fatal(args ...interface{}) {
 
 // Fatalf implement the goose.Logger interface method
 func (z *ZerologGooseAdapter) Fatalf(format string, args ...interface{}) {
-	f := strings.Replace(format, "\n", "", -1)
+	f := strings.ReplaceAll(format, "\n", "")
 	z.Logger.Fatal().Msgf(f, args...)
 }
