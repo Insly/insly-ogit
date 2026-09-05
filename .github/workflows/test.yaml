@@ -1,0 +1,75 @@
+name: Test
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      floci:
+        image: floci/floci:2.0.1
+        ports:
+          - 4566:4566
+    env:
+      FLOCI_ENDPOINT: http://127.0.0.1:4566
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify modules and formatting
+        run: |
+          go mod download
+          go mod verify
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          test -z "$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
+      - name: Vet and test all packages, native Git and S3 contracts
+        run: |
+          go vet ./...
+          go test -race -count=1 -timeout=5m ./...
+          go test -race -tags=integration -count=1 -timeout=5m ./... -run Floci
+      - name: Build release image
+        env:
+          BUILD_VERSION: ${{ github.ref_name }}
+        run: docker build --build-arg VERSION="$BUILD_VERSION" -t ogit-tested:ci .
+      - name: Test container startup and shallow clone
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm ogit-tested:ci --version
+          reader=$(openssl rand -hex 16)
+          writer=$(openssl rand -hex 16)
+          admin=$(openssl rand -hex 16)
+          container=$(docker run -d -p 127.0.0.1::8080 \
+            -e STORAGE_TYPE=local -e STORAGE_LOCAL_PATH=/tmp/repositories \
+            -e AUTH_READ_TOKEN="$reader" -e AUTH_WRITE_TOKEN="$writer" \
+            -e AUTH_ADMIN_TOKEN="$admin" ogit-tested:ci server --config /dev/null)
+          trap 'docker logs "$container"; docker rm -f "$container"' EXIT
+          port=$(docker port "$container" 8080/tcp | cut -d: -f2)
+          url="http://127.0.0.1:$port"
+          curl --retry 20 --retry-connrefused --retry-delay 1 --fail "$url/health"
+          curl --fail -u "git:$admin" -H 'Content-Type: application/json' \
+            -d '{"name":"smoke"}' "$url/api/repo"
+          git clone --depth=1 "http://git:$reader@127.0.0.1:$port/smoke.git" "$RUNNER_TEMP/ogit-smoke"
+          test -f "$RUNNER_TEMP/ogit-smoke/README.md"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -u "git:$reader" -X POST "$url/smoke.git/git-receive-pack")" = 403
+      - name: Test exact image binary with S3 replication
+        run: |
+          container=$(docker create ogit-tested:ci)
+          docker cp "$container:/app" "$RUNNER_TEMP/ogit-image"
+          docker rm "$container"
+          OGIT_TEST_BINARY="$RUNNER_TEMP/ogit-image" go test -tags=integration -count=1 -timeout=5m ./cmd -run '^TestFlociProcessIntegration$'
+      - name: Save tested image
+        run: docker save ogit-tested:ci -o "$RUNNER_TEMP/ogit-image.tar"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-image
+          path: ${{ runner.temp }}/ogit-image.tar
+          retention-days: 3

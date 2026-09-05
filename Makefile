@@ -18,7 +18,7 @@ deps: ## Install dependencies
 
 # Unit tests
 test-unit: ## Run unit tests
-	go test -v -race -timeout 30s ./pkg/... ./internal/...
+	go test -v -race -timeout 5m ./...
 
 # Tests with coverage
 test-coverage: ## Run tests with coverage
@@ -26,17 +26,10 @@ test-coverage: ## Run tests with coverage
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
-# Integration tests (requires S3_TEST_*)
-test-integration: ## Run integration tests (requires S3_TEST_* variables)
-	@if [ -z "$(S3_TEST_BUCKET)" ]; then \
-		echo "❌ S3_TEST_* variables not defined. Example:"; \
-		echo "export S3_TEST_BUCKET=your-test-bucket"; \
-		echo "export S3_TEST_REGION=us-east-1"; \
-		echo "export S3_TEST_ENDPOINT=https://s3.us-east-1.amazonaws.com"; \
-		echo "make test-integration"; \
-		exit 1; \
-	fi
-	go test -v -tags=integration -timeout 5m ./...
+# Integration tests against a running Floci container.
+test-integration: ## Run Floci integration tests (requires FLOCI_ENDPOINT)
+	@test -n "$(FLOCI_ENDPOINT)" || (echo "Set FLOCI_ENDPOINT, e.g. http://127.0.0.1:4566"; exit 1)
+	go test -race -tags=integration -count=1 -timeout=5m ./... -run Floci
 
 # All tests
 test: test-unit ## Run all tests (unit tests only by default)
@@ -65,13 +58,13 @@ lint: ## Lint code (requires golangci-lint)
 # Build
 build: ## Build the server
 	@mkdir -p $(BUILD_DIR)
-	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/main.go
+	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd
 
 # Build with version information
 build-release: ## Build for release
 	@mkdir -p $(BUILD_DIR)
 	go build -ldflags "-X main.version=$(shell git describe --tags --always --dirty)" \
-		-o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/main.go
+		-o $(BUILD_DIR)/$(BINARY_NAME) ./cmd
 
 # Run the server
 run: build ## Build and run the server
@@ -116,7 +109,7 @@ update-deps: ## Update dependencies
 	go mod tidy
 
 # Complete check (CI)
-ci: fmt vet test-unit ## CI/CD checks
+ci: vet test-unit ## CI/CD checks
 
 # Memory tests with Valgrind (Linux only)
 memcheck: ## Memory tests (Linux only)

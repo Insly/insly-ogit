@@ -129,7 +129,7 @@ git push origin main
 - [ ] Web UI for repository browsing
 - [ ] Webhook support for CI/CD integration
 - [ ] Branch protection rules
-- [ ] Repository mirroring
+- [x] Forward-only regional S3 branch replication
 - [ ] Git LFS (Large File Storage) support
 
 ### Operations & Monitoring
@@ -165,3 +165,7 @@ make test-coverage
 ## License
 
 See [LICENSE](LICENSE) file for details.
+
+## S3 replication and access controls
+
+See [configuration and operational guarantees](docs/deployment.md) for AWS role credentials, conditional branch writes, authentication, bootstrap, regional replication, and tested releases.
