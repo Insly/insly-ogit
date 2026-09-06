@@ -184,10 +184,13 @@ end-to-end rollout freshness through consuming applications too.
 Go is pinned to 1.27.1 in `go.mod`, `.tool-versions`, and Docker. The runtime
 uses Debian `trixie-slim`; the Go builder, Debian runtime and Floci test images
 are pulled from public ECR. PRs, main pushes, manual checks and release tags
-use the shared GitHub test workflow, including golangci-lint v2.13.2 over
-application and integration-test code.
-Release publication depends on that workflow and pushes the saved, tested
-image rather than rebuilding it. PR jobs have read-only repository permissions.
+use the shared GitHub test workflow on native AMD64 and ARM64 runners, including
+golangci-lint v2.13.2 over application and integration-test code.
+Release publication depends on both architectures passing that workflow and
+pushes the saved, tested images rather than rebuilding them. Each release tag
+selects the appropriate `linux/amd64` or `linux/arm64` image automatically;
+architecture-specific tags append `-amd64` or `-arm64` to the release tag.
+PR jobs have read-only repository permissions.
 
 ```sh
 make lint

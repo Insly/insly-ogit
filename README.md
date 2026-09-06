@@ -70,7 +70,8 @@ FLOCI_ENDPOINT=http://127.0.0.1:4566 make test-integration
 ```
 
 The shared CI workflow checks modules, formatting, lint, tests and the built
-container. Release publication uses the image that passed those checks.
+container on native AMD64 and ARM64 runners. Release tags publish a multi-platform
+image for `linux/amd64` and `linux/arm64`, using the images that passed those checks.
 
 ## License
 
