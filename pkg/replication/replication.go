@@ -26,9 +26,16 @@ type Status struct {
 type Mirror struct {
 	Source, Destination storer.Storer
 	Branch              plumbing.ReferenceName
-	mu                  sync.Mutex
-	status              Status
+	// AuditInterval bounds how long unchanged objects may go without validation.
+	// Zero uses DefaultAuditInterval. Configure before starting the controller.
+	AuditInterval     time.Duration
+	mu                sync.Mutex
+	status            Status
+	validatedRevision plumbing.Hash
+	validatedAt       time.Time
 }
+
+const DefaultAuditInterval = time.Hour
 
 func (m *Mirror) Status() Status { m.mu.Lock(); defer m.mu.Unlock(); return m.status }
 func scoped(s storer.Storer, ctx context.Context) storer.Storer {
@@ -38,7 +45,7 @@ func scoped(s storer.Storer, ctx context.Context) storer.Storer {
 	return s
 }
 
-// Reconcile needs no in-memory checkpoint. All progress is committed in the destination ref.
+// Reconcile resumes from durable refs; its checkpoint only avoids repeated audits.
 func (m *Mirror) Reconcile(ctx context.Context) (err error) {
 	start := time.Now()
 	ctx, end := telemetry.StartOperation(ctx, "git.replicate")
@@ -54,6 +61,7 @@ func (m *Mirror) Reconcile(ctx context.Context) (err error) {
 	defer func() {
 		if err != nil {
 			m.status.Error = err.Error()
+			m.validatedRevision = plumbing.ZeroHash
 		} else {
 			m.status.Error = ""
 			m.status.LastSuccess = time.Now().UTC()
@@ -62,6 +70,9 @@ func (m *Mirror) Reconcile(ctx context.Context) (err error) {
 	}()
 	if !m.Branch.IsBranch() {
 		return fmt.Errorf("mirror requires an explicit branch")
+	}
+	if m.AuditInterval < 0 {
+		return fmt.Errorf("replication audit interval must not be negative")
 	}
 	if err = m.Branch.Validate(); err != nil {
 		return err
@@ -78,6 +89,7 @@ func (m *Mirror) Reconcile(ctx context.Context) (err error) {
 	old, err := dst.Reference(m.Branch)
 	if errors.Is(err, plumbing.ErrReferenceNotFound) {
 		old = nil
+		m.status.AppliedRevision = ""
 	} else if err != nil {
 		return err
 	}
@@ -87,8 +99,17 @@ func (m *Mirror) Reconcile(ctx context.Context) (err error) {
 	if m.status.SourceRevision != m.status.AppliedRevision && m.status.PendingSince.IsZero() {
 		m.status.PendingSince = time.Now().UTC()
 	}
-	// Validate the complete source even when its head is unchanged, so missing or
-	// corrupt source objects are visible. Transfer only objects absent locally.
+	auditInterval := m.AuditInterval
+	if auditInterval == 0 {
+		auditInterval = DefaultAuditInterval
+	}
+	// Equal refs alone do not prove completeness after restart or a failed audit.
+	// Re-read both refs so destination loss or another publisher cannot be hidden.
+	if old != nil && old.Type() == plumbing.HashReference && old.Hash() == source.Hash() &&
+		m.validatedRevision == source.Hash() && time.Since(m.validatedAt) < auditInterval {
+		return nil
+	}
+	// Validate on changed refs and periodic audits, transferring absent objects.
 	ancestors, err := gitgraph.Walk(ctx, src, source.Hash(), func(obj plumbing.EncodedObject) error {
 		existing, err := dst.EncodedObject(obj.Type(), obj.Hash())
 		if err == nil {
@@ -124,13 +145,14 @@ func (m *Mirror) Reconcile(ctx context.Context) (err error) {
 			return err
 		}
 	}
-	if old != nil && old.Hash() == source.Hash() {
-		return nil
-	}
-	if err = dst.CheckAndSetReference(plumbing.NewHashReference(m.Branch, source.Hash()), old); err != nil {
-		return err
+	if old == nil || old.Hash() != source.Hash() {
+		if err = dst.CheckAndSetReference(plumbing.NewHashReference(m.Branch, source.Hash()), old); err != nil {
+			return err
+		}
 	}
 	m.status.AppliedRevision = source.Hash().String()
+	m.validatedRevision = source.Hash()
+	m.validatedAt = time.Now()
 	return nil
 }
 

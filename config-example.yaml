@@ -18,3 +18,22 @@ storage:
     access-key: xxxxxxxx
     secret-key: xxxxxxxx
     region: eu-west-2
+
+# For a regional read replica, also set ssh.enabled to false and read-only to true.
+# Configure the source below; omit this block on the writer.
+# read-only: true
+# replication:
+#   source-bucket: git-source
+#   source-region: eu-west-2
+#   source-repository: flags
+#   repository: flags
+#   branch: main
+#   mode: poll # Choose poll (default) or sqs.
+#   interval: 5s # Used by poll mode.
+#   timeout: 1m
+#   audit-interval: 1h
+#   # For sqs mode, provision S3 notifications and configure the queue:
+#   # queue-url: https://sqs.eu-west-2.amazonaws.com/123456789012/flags-replication
+#   # fallback-interval: 5m
+#   # queue-wait-time: 20s # AWS maximum; whole seconds from 1s to 20s.
+#   # queue-empty-delay: 100ms # Increase to reduce idle requests at the cost of notification delay.
