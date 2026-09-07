@@ -74,7 +74,7 @@ var Access AccessConfig
 
 type ReplicationConfig struct {
 	SourceBucket, SourceRegion, SourceEndpoint, SourceRepository, Repository, Branch string
-	Interval, Timeout                                                                time.Duration
+	Interval, Timeout, AuditInterval                                                 time.Duration
 }
 
 var Replication ReplicationConfig
@@ -95,6 +95,9 @@ func ValidateServer() error {
 	}
 	r := Replication
 	if r.SourceBucket != "" {
+		if r.AuditInterval < 0 {
+			return fmt.Errorf("replication audit interval must not be negative")
+		}
 		if Storage.Type != "s3" || !Access.ReadOnly || SSH.Enabled {
 			return fmt.Errorf("replication requires S3 storage, read-only HTTP and disabled SSH")
 		}

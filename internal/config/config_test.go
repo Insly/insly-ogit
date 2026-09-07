@@ -23,6 +23,10 @@ func TestValidateServerRejectsBypasses(t *testing.T) {
 	require.Error(t, ValidateServer(), "mirror must force clients read-only")
 	Access.ReadOnly = true
 	require.NoError(t, ValidateServer())
+	Replication.AuditInterval = -time.Second
+	require.Error(t, ValidateServer(), "negative audit intervals must not start a broken controller")
+	Replication.AuditInterval = time.Hour
+	require.NoError(t, ValidateServer())
 	Replication.Interval = 0
 	require.Error(t, ValidateServer())
 }

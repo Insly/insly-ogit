@@ -25,5 +25,12 @@ func HAFlags() []cli.Flag {
 		&cli.StringFlag{Name: "replication.branch", Value: "main", Destination: &config.Replication.Branch, Sources: source("replication.branch", "REPLICATION_BRANCH")},
 		&cli.DurationFlag{Name: "replication.interval", Value: 5 * time.Second, Destination: &config.Replication.Interval, Sources: source("replication.interval", "REPLICATION_INTERVAL")},
 		&cli.DurationFlag{Name: "replication.timeout", Value: time.Minute, Destination: &config.Replication.Timeout, Sources: source("replication.timeout", "REPLICATION_TIMEOUT")},
+		&cli.DurationFlag{
+			Name:        "replication.audit-interval",
+			Usage:       "Full graph audit interval for unchanged revisions (zero uses 1h)",
+			Value:       time.Hour,
+			Destination: &config.Replication.AuditInterval,
+			Sources:     source("replication.audit-interval", "REPLICATION_AUDIT_INTERVAL"),
+		},
 	}
 }

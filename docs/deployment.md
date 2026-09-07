@@ -126,6 +126,7 @@ replication:
   branch: main
   interval: 5s
   timeout: 1m
+  audit-interval: 1h
 ```
 
 Supply `AUTH_READ_TOKEN` separately. The source ogit omits `replication`
@@ -135,7 +136,7 @@ Every setting above also has a CLI flag; replication environment variables use
 `REPLICATION_SOURCE_BUCKET`, `REPLICATION_SOURCE_REGION`,
 `REPLICATION_SOURCE_ENDPOINT`, `REPLICATION_SOURCE_REPOSITORY`,
 `REPLICATION_REPOSITORY`, `REPLICATION_BRANCH`, `REPLICATION_INTERVAL`, and
-`REPLICATION_TIMEOUT`. `REPLICATION_SOURCE_ENDPOINT` is for emulator testing;
+`REPLICATION_TIMEOUT`, and `REPLICATION_AUDIT_INTERVAL`. `REPLICATION_SOURCE_ENDPOINT` is for emulator testing;
 leave it unset in AWS.
 
 ## Publication and replication guarantees
@@ -157,10 +158,17 @@ leave it unset in AWS.
   A missing/corrupt object, timeout or upstream outage leaves the old head.
 - No cross-region or multi-ref transaction is claimed. Do not configure S3 CRR
   to write these serving refs. Do not expire/delete reachable Git objects.
-- Validation currently walks complete history, bounded at 100,000 objects.
-  Measure reconciliation cost and propagation delay as history grows. Polling
-  defaults to 5 seconds, with a 1-minute attempt timeout; these are settings,
-  not an end-to-end freshness guarantee.
+- Startup, changed revisions and scheduled audits validate complete history,
+  bounded at 100,000 objects. After successful validation, unchanged polls read
+  only the source and destination branch refs (two GETs, no object or metadata
+  requests). A missing or changed destination ref triggers full reconciliation.
+  Failed attempts invalidate the process-local validation checkpoint.
+- Polling defaults to 5 seconds, with a 1-minute attempt timeout and a 1-hour
+  full audit interval; zero audit interval also means 1 hour. Idle corruption
+  detection and missing-object repair are deferred until the next audit or
+  restart. Ref checks do not refresh the audit timestamp. Audits run on the next
+  reconciliation after they become due. Measure full-walk cost as history grows;
+  these intervals are not an end-to-end freshness guarantee.
 
 ## Readiness and monitoring
 

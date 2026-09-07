@@ -87,7 +87,12 @@ func runServer(ctx context.Context, c *cli.Command) error {
 			sourceRepo = rc.Repository
 		}
 		source := s3store.NewS3Storer(client, rc.SourceBucket, "repositories/"+common.NormalizeRepoPath(sourceRepo), l)
-		mirror = &replication.Mirror{Source: source, Destination: local.StorerForRepository(rc.Repository), Branch: plumbing.NewBranchReferenceName(rc.Branch)}
+		mirror = &replication.Mirror{
+			Source:        source,
+			Destination:   local.StorerForRepository(rc.Repository),
+			Branch:        plumbing.NewBranchReferenceName(rc.Branch),
+			AuditInterval: rc.AuditInterval,
+		}
 	}
 	// Setup signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)

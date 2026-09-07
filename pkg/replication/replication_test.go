@@ -21,6 +21,101 @@ import (
 
 const branch plumbing.ReferenceName = "refs/heads/main"
 
+func TestUnchangedPollReadsOnlyReferences(t *testing.T) {
+	for _, history := range []int{1, 12} {
+		t.Run(fmt.Sprint(history), func(t *testing.T) {
+			f := testutil.NewS3(t)
+			src := s3store.NewS3Storer(f.Client(), "eu", "repo.git", zerolog.Nop())
+			dst := s3store.NewS3Storer(f.Client(), "us", "repo.git", zerolog.Nop())
+			head := plumbing.ZeroHash
+			for i := 0; i < history; i++ {
+				head = commit(t, src, head, fmt.Sprint(i))
+			}
+			require.NoError(t, src.SetReference(plumbing.NewHashReference(branch, head)))
+			m := Mirror{Source: src, Destination: dst, Branch: branch}
+			require.NoError(t, m.Reconcile(context.Background()))
+			var requests []string
+			f.Before = func(_ http.ResponseWriter, r *http.Request) bool {
+				requests = append(requests, r.Method+" "+r.URL.Path)
+				return false
+			}
+			for i := 0; i < 2; i++ {
+				requests = nil
+				require.NoError(t, m.Reconcile(context.Background()))
+				require.Equal(t, []string{"GET /eu/repo.git/refs/heads/main", "GET /us/repo.git/refs/heads/main"}, requests)
+			}
+		})
+	}
+}
+
+func TestRestartValidatesMatchingReferences(t *testing.T) {
+	f := testutil.NewS3(t)
+	src := s3store.NewS3Storer(f.Client(), "eu", "repo.git", zerolog.Nop())
+	dst := s3store.NewS3Storer(f.Client(), "us", "repo.git", zerolog.Nop())
+	head := commit(t, src, plumbing.ZeroHash, "ready")
+	require.NoError(t, src.SetReference(plumbing.NewHashReference(branch, head)))
+	m := Mirror{Source: src, Destination: dst, Branch: branch}
+	require.NoError(t, m.Reconcile(context.Background()))
+	f.Delete("eu/repo.git/objects/" + head.String()[:2] + "/" + head.String()[2:])
+	restarted := Mirror{Source: src, Destination: dst, Branch: branch}
+	require.Error(t, restarted.Reconcile(context.Background()))
+	require.Error(t, restarted.Reconcile(context.Background()), "failed validation must not establish a checkpoint")
+}
+
+func TestIdlePollDefersIntegrityCheckUntilAudit(t *testing.T) {
+	for _, bucket := range []string{"eu", "us"} {
+		t.Run(bucket, func(t *testing.T) {
+			f := testutil.NewS3(t)
+			src := s3store.NewS3Storer(f.Client(), "eu", "repo.git", zerolog.Nop())
+			dst := s3store.NewS3Storer(f.Client(), "us", "repo.git", zerolog.Nop())
+			head := commit(t, src, plumbing.ZeroHash, "ready")
+			require.NoError(t, src.SetReference(plumbing.NewHashReference(branch, head)))
+			m := Mirror{Source: src, Destination: dst, Branch: branch}
+			require.NoError(t, m.Reconcile(context.Background()))
+			key := bucket + "/repo.git/objects/" + head.String()[:2] + "/" + head.String()[2:]
+			original, ok := f.Get(key)
+			require.True(t, ok)
+			f.Delete(key)
+			require.NoError(t, m.Reconcile(context.Background()), "ordinary polls defer object checks")
+			_, exists := f.Get(key)
+			require.False(t, exists, "ordinary polls must not read or repair objects")
+			m.AuditInterval = time.Nanosecond
+			if bucket == "eu" {
+				require.Error(t, m.Reconcile(context.Background()))
+				m.AuditInterval = time.Hour
+				require.Error(t, m.Reconcile(context.Background()), "audit failure must invalidate the checkpoint")
+				f.Put(key, original.Body, original.Type)
+			}
+			require.NoError(t, m.Reconcile(context.Background()))
+			restored, exists := f.Get(key)
+			require.True(t, exists)
+			require.Equal(t, original.Body, restored.Body)
+		})
+	}
+}
+
+func TestLostDestinationReferenceClearsStatusAndRevalidates(t *testing.T) {
+	f := testutil.NewS3(t)
+	src := s3store.NewS3Storer(f.Client(), "eu", "repo.git", zerolog.Nop())
+	dst := s3store.NewS3Storer(f.Client(), "us", "repo.git", zerolog.Nop())
+	head := commit(t, src, plumbing.ZeroHash, "ready")
+	require.NoError(t, src.SetReference(plumbing.NewHashReference(branch, head)))
+	m := Mirror{Source: src, Destination: dst, Branch: branch}
+	require.NoError(t, m.Reconcile(context.Background()))
+	f.Delete("us/repo.git/refs/heads/main")
+	key := "eu/repo.git/objects/" + head.String()[:2] + "/" + head.String()[2:]
+	original, _ := f.Get(key)
+	f.Delete(key)
+	require.Error(t, m.Reconcile(context.Background()))
+	require.Empty(t, m.Status().AppliedRevision)
+	require.False(t, m.Status().PendingSince.IsZero())
+	f.Put(key, original.Body, original.Type)
+	require.NoError(t, m.Reconcile(context.Background()))
+	r, err := dst.Reference(branch)
+	require.NoError(t, err)
+	require.Equal(t, head, r.Hash())
+}
+
 func commit(t *testing.T, s storer.Storer, parent plumbing.Hash, content string) plumbing.Hash {
 	t.Helper()
 	blob := s.NewEncodedObject()
