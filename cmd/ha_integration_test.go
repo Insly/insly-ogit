@@ -19,7 +19,13 @@ import (
 // SDK HTTP fixture. Real S3 remains a separate deployment acceptance boundary.
 func TestHAProcessIntegration(t *testing.T) { runHAProcessIntegration(t, "") }
 
-func runHAProcessIntegration(t *testing.T, endpoint string) {
+type replicationProcessOptions struct {
+	settings         string
+	beforePush       func()
+	afterReplication func()
+}
+
+func runHAProcessIntegration(t *testing.T, endpoint string, configure ...func(string) replicationProcessOptions) {
 	bin := os.Getenv("OGIT_TEST_BINARY")
 	if bin == "" {
 		bin = filepath.Join(t.TempDir(), "ogit")
@@ -34,6 +40,10 @@ func runHAProcessIntegration(t *testing.T, endpoint string) {
 		endpoint = f.Server.URL
 	} else {
 		_, euBucket, usBucket = testutil.ExternalS3(t, endpoint)
+	}
+	options := replicationProcessOptions{settings: "  interval: 100ms\n"}
+	if len(configure) > 0 {
+		options = configure[0](euBucket)
 	}
 	root := t.TempDir()
 	seed := filepath.Join(root, "seed")
@@ -53,7 +63,7 @@ func runHAProcessIntegration(t *testing.T, endpoint string) {
 		return p
 	}
 	eu := conf(euBucket, euPort, "")
-	us := conf(usBucket, usPort, "read-only: true\nreplication:\n  source-bucket: "+euBucket+"\n  source-region: us-east-1\n  source-endpoint: "+endpoint+"\n  repository: flags\n  branch: main\n  interval: 100ms\n  timeout: 2s\n")
+	us := conf(usBucket, usPort, "read-only: true\nreplication:\n  source-bucket: "+euBucket+"\n  source-region: us-east-1\n  source-endpoint: "+endpoint+"\n  repository: flags\n  branch: main\n  timeout: 2s\n"+options.settings)
 	run := func(program string, args ...string) string {
 		t.Helper()
 		c := exec.Command(program, args...)
@@ -76,6 +86,10 @@ func runHAProcessIntegration(t *testing.T, endpoint string) {
 				_ = c.Process.Signal(os.Interrupt)
 				_ = c.Wait()
 			}
+			if t.Failed() {
+				body, _ := os.ReadFile(log.Name())
+				t.Logf("server output:\n%s", body)
+			}
 		})
 		require.Eventually(t, func() bool {
 			resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
@@ -93,6 +107,16 @@ func runHAProcessIntegration(t *testing.T, endpoint string) {
 	usURL := fmt.Sprintf("http://git:reader@127.0.0.1:%d/flags.git", usPort)
 	work := filepath.Join(root, "work")
 	run("git", "clone", "--depth=1", euURL, work)
+	// Wait for startup to finish before enabling notifications and pushing.
+	// Otherwise initial reconciliation could mask a broken notification consumer.
+	initial := run("git", "-C", work, "rev-parse", "HEAD")
+	require.Eventually(t, func() bool {
+		out, err := exec.Command("git", "ls-remote", usURL, "refs/heads/main").CombinedOutput()
+		return err == nil && strings.HasPrefix(string(out), initial)
+	}, 10*time.Second, 100*time.Millisecond)
+	if options.beforePush != nil {
+		options.beforePush()
+	}
 	run("git", "-C", work, "config", "user.name", "Test")
 	run("git", "-C", work, "config", "user.email", "test@example.com")
 	require.NoError(t, os.WriteFile(filepath.Join(work, "features.yaml"), []byte("flag: true\n"), 0600))
@@ -104,6 +128,9 @@ func runHAProcessIntegration(t *testing.T, endpoint string) {
 		out, err := exec.Command("git", "ls-remote", usURL, "refs/heads/main").CombinedOutput()
 		return err == nil && strings.HasPrefix(string(out), want)
 	}, 10*time.Second, 100*time.Millisecond)
+	if options.afterReplication != nil {
+		options.afterReplication()
+	}
 	// Reseeding after user edits cannot replace the branch.
 	run(bin, "bootstrap", "-c", eu, "--repository", "flags", "--seed-directory", seed)
 	require.Contains(t, run("git", "ls-remote", euURL, "refs/heads/main"), want)

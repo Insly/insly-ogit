@@ -71,6 +71,7 @@ func runServer(ctx context.Context, c *cli.Command) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var mirror *replication.Mirror
+	var runReplication replicationRunner
 	if config.Replication.SourceBucket != "" {
 		local, ok := str.(*s3store.S3Storage)
 		if !ok {
@@ -93,6 +94,7 @@ func runServer(ctx context.Context, c *cli.Command) error {
 			Branch:        plumbing.NewBranchReferenceName(rc.Branch),
 			AuditInterval: rc.AuditInterval,
 		}
+		runReplication = newReplicationRunner(mirror, client, rc, l)
 	}
 	// Setup signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -105,13 +107,17 @@ func runServer(ctx context.Context, c *cli.Command) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = mirror.Run(ctx, config.Replication.Interval, config.Replication.Timeout, func(status replication.Status) {
+			err := runReplication(ctx, func(status replication.Status) {
 				event := l.Info()
 				if status.Error != "" {
 					event = l.Warn()
 				}
 				event.Str("source_revision", status.SourceRevision).Str("applied_revision", status.AppliedRevision).Str("error", status.Error).Time("last_success", status.LastSuccess).Msg("Regional replication reconciled")
 			})
+			if err != nil && ctx.Err() == nil {
+				l.Error().Err(err).Msg("Regional replication stopped")
+				cancel()
+			}
 		}()
 	}
 

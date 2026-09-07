@@ -9,7 +9,8 @@ publication, and regional S3 replicas that serve reads from their own buckets.
 - Git Smart HTTP clone, fetch and push, including shallow clones and later fetches.
 - Local filesystem and S3-compatible storage backends.
 - Reader, writer and administrator tokens, plus a read-only serving mode.
-- Conditional S3 reference writes and forward-only regional replication.
+- Conditional S3 reference writes and forward-only regional replication through
+  polling or S3 notifications via SQS.
 - Idempotent S3 bootstrap that preserves existing repository contents.
 - Health/readiness endpoints, structured logs, OpenTelemetry traces and metrics.
 - A Debian container image tested with native Git and Floci before release.

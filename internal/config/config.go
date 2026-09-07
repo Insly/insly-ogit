@@ -2,9 +2,11 @@ package config
 
 import (
 	"fmt"
-	"github.com/go-git/go-git/v5/plumbing"
+	"net/url"
 	"strings"
 	"time"
+
+	"github.com/go-git/go-git/v5/plumbing"
 )
 
 var (
@@ -75,6 +77,9 @@ var Access AccessConfig
 type ReplicationConfig struct {
 	SourceBucket, SourceRegion, SourceEndpoint, SourceRepository, Repository, Branch string
 	Interval, Timeout, AuditInterval                                                 time.Duration
+	Mode, QueueURL, QueueEndpoint                                                    string
+	FallbackInterval                                                                 time.Duration
+	QueueWaitTime, QueueEmptyDelay                                                   time.Duration
 }
 
 var Replication ReplicationConfig
@@ -94,6 +99,24 @@ func ValidateServer() error {
 		}
 	}
 	r := Replication
+	if r.Mode != "" && r.Mode != "poll" && r.Mode != "sqs" {
+		return fmt.Errorf("replication mode must be poll or sqs")
+	}
+	if r.Mode == "sqs" {
+		if err := ValidateReplicationQueueTiming(r.QueueWaitTime, r.QueueEmptyDelay); err != nil {
+			return err
+		}
+		queue, err := url.Parse(r.QueueURL)
+		if err != nil || queue.Host == "" || (queue.Scheme != "https" && queue.Scheme != "http") {
+			return fmt.Errorf("SQS replication requires an HTTP(S) queue URL")
+		}
+		// A received batch may wait behind one fallback attempt before its own.
+		if r.SourceBucket == "" || r.FallbackInterval <= 0 || r.Timeout > 6*time.Hour-30*time.Second {
+			return fmt.Errorf("SQS replication requires a source bucket, positive fallback interval and timeout no greater than 5h59m30s")
+		}
+	} else if r.QueueURL != "" || r.QueueEndpoint != "" {
+		return fmt.Errorf("replication queue settings require sqs mode")
+	}
 	if r.SourceBucket != "" {
 		if r.AuditInterval < 0 {
 			return fmt.Errorf("replication audit interval must not be negative")
@@ -101,7 +124,7 @@ func ValidateServer() error {
 		if Storage.Type != "s3" || !Access.ReadOnly || SSH.Enabled {
 			return fmt.Errorf("replication requires S3 storage, read-only HTTP and disabled SSH")
 		}
-		if r.SourceRegion == "" || r.Repository == "" || r.Branch == "" || r.Interval <= 0 || r.Timeout <= 0 {
+		if r.SourceRegion == "" || r.Repository == "" || r.Branch == "" || (r.Mode != "sqs" && r.Interval <= 0) || r.Timeout <= 0 {
 			return fmt.Errorf("replication source region, repository, branch and positive durations are required")
 		}
 		if strings.ContainsAny(r.Repository, "/\\") || r.Repository == "." || r.Repository == ".." {
@@ -113,6 +136,19 @@ func ValidateServer() error {
 		if r.SourceBucket == Storage.S3.Bucket && r.SourceEndpoint == Storage.S3.Endpoint && (r.SourceRepository == "" || r.SourceRepository == r.Repository) {
 			return fmt.Errorf("source and destination repositories must differ")
 		}
+	}
+	return nil
+}
+
+// ValidateReplicationQueueTiming checks SQS timing before startup can perform any I/O.
+// Zero values preserve defaults for callers that do not configure queue timing.
+func ValidateReplicationQueueTiming(wait, emptyDelay time.Duration) error {
+	// AWS accepts only whole seconds, with a maximum long poll of 20 seconds.
+	if wait < 0 || wait > 20*time.Second || wait%time.Second != 0 {
+		return fmt.Errorf("replication queue-wait-time must be whole seconds from 1s to 20s (zero uses 20s)")
+	}
+	if emptyDelay < 0 {
+		return fmt.Errorf("replication queue-empty-delay must not be negative (zero uses 100ms)")
 	}
 	return nil
 }

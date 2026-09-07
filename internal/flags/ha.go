@@ -32,5 +32,45 @@ func HAFlags() []cli.Flag {
 			Destination: &config.Replication.AuditInterval,
 			Sources:     source("replication.audit-interval", "REPLICATION_AUDIT_INTERVAL"),
 		},
+		&cli.StringFlag{
+			Name:        "replication.mode",
+			Usage:       "Replication trigger: poll or sqs",
+			Value:       "poll",
+			Destination: &config.Replication.Mode,
+			Sources:     source("replication.mode", "REPLICATION_MODE"),
+		},
+		&cli.StringFlag{
+			Name:        "replication.queue-url",
+			Usage:       "Dedicated source-region SQS queue URL",
+			Destination: &config.Replication.QueueURL,
+			Sources:     source("replication.queue-url", "REPLICATION_QUEUE_URL"),
+		},
+		&cli.StringFlag{
+			Name:        "replication.queue-endpoint",
+			Usage:       "SQS endpoint override for emulator testing",
+			Destination: &config.Replication.QueueEndpoint,
+			Sources:     source("replication.queue-endpoint", "REPLICATION_QUEUE_ENDPOINT"),
+		},
+		&cli.DurationFlag{
+			Name:        "replication.queue-wait-time",
+			Usage:       "SQS long-poll wait, whole seconds from 1s to 20s (zero uses 20s)",
+			Value:       20 * time.Second,
+			Destination: &config.Replication.QueueWaitTime,
+			Sources:     source("replication.queue-wait-time", "REPLICATION_QUEUE_WAIT_TIME"),
+		},
+		&cli.DurationFlag{
+			Name:        "replication.queue-empty-delay",
+			Usage:       "Pause after an empty SQS receive; longer pauses reduce requests but delay notifications (zero uses 100ms)",
+			Value:       100 * time.Millisecond,
+			Destination: &config.Replication.QueueEmptyDelay,
+			Sources:     source("replication.queue-empty-delay", "REPLICATION_QUEUE_EMPTY_DELAY"),
+		},
+		&cli.DurationFlag{
+			Name:        "replication.fallback-interval",
+			Usage:       "Reconciliation interval when notifications are absent or unavailable",
+			Value:       5 * time.Minute,
+			Destination: &config.Replication.FallbackInterval,
+			Sources:     source("replication.fallback-interval", "REPLICATION_FALLBACK_INTERVAL"),
+		},
 	}
 }
